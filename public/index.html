@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Bangla Practice</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#111;color:#f0f0f0;min-height:100vh;font-size:15px}
+.app{max-width:420px;margin:0 auto;padding:0 0 80px}
+.header{padding:16px 16px 8px;display:flex;align-items:center;justify-content:space-between}
+.header-title{font-size:18px;font-weight:500}
+.streak{font-size:13px;color:#aaa;background:#1e1e1e;padding:6px 12px;border-radius:20px;border:0.5px solid #333}
+.streak-count{color:#4a9eff;font-weight:500}
+.sec{padding:12px 16px}
+.sec-label{font-size:11px;font-weight:500;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+.card{background:#1e1e1e;border:0.5px solid #333;border-radius:12px;padding:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mc{background:#1e1e1e;border:0.5px solid #333;border-radius:12px;padding:16px;cursor:pointer;text-align:left;transition:border-color .15s}
+.mc:hover{border-color:#555;background:#252525}
+.mc:active{transform:scale(.98)}
+.mc-icon{font-size:22px;margin-bottom:8px}
+.mc-title{font-size:14px;font-weight:500;margin-bottom:3px}
+.mc-sub{font-size:12px;color:#aaa}
+.mc.focus{border-color:#2a6aaa;background:#0d2a4a}
+.mc.focus .mc-title{color:#4a9eff}
+.mc-full{background:#130d2a;border:0.5px solid #3a2a6a;border-radius:12px;padding:16px;cursor:pointer;display:flex;align-items:center;gap:14px;margin-bottom:10px}
+.mc-full:hover{border-color:#5a4a9a}
+.mc-full .mc-icon{font-size:28px;flex-shrink:0;margin-bottom:0}
+.mc-full .mc-title{font-size:15px;font-weight:500;color:#a78bfa;margin-bottom:3px}
+.mc-full .mc-sub{font-size:12px;color:#7c6ab0}
+.stat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.stat{background:#1e1e1e;border:0.5px solid #333;border-radius:10px;padding:12px 10px;text-align:center}
+.stat-n{font-size:20px;font-weight:500;color:#4a9eff}
+.stat-l{font-size:11px;color:#666;margin-top:2px}
+.time-row{display:flex;gap:10px;margin-bottom:14px}
+.tb{flex:1;padding:10px;border:0.5px solid #333;border-radius:10px;background:#1e1e1e;color:#f0f0f0;font-size:14px;cursor:pointer;text-align:center}
+.tb.active,.tb:hover{border-color:#2a6aaa;background:#0d2a4a;color:#4a9eff}
+.btn{width:100%;padding:14px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-size:16px;font-weight:500;cursor:pointer}
+.btn:hover{opacity:.9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.mix{background:linear-gradient(135deg,#4f3a9a,#2563eb)}
+.btn.danger{background:#7f1d1d;margin-top:10px;font-size:14px;padding:12px}
+.pbar-wrap{height:4px;background:#111;margin:0 16px 16px;border-radius:2px}
+.pbar{height:100%;background:#2563eb;border-radius:2px;transition:width .3s}
+.dc{background:#1e1e1e;border:0.5px solid #333;border-radius:16px;padding:20px;margin:0 16px}
+.dmeta{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.tag{font-size:11px;padding:2px 8px;border-radius:20px;display:inline-block}
+.tag.ai{background:#1a0d2a;color:#a78bfa;border:0.5px solid #4a1a8a}
+.tag.doc{background:#0d2a4a;color:#4a9eff;border:0.5px solid #1a4a8a}
+.tag.custom{background:#0d2a1a;color:#2a9;border:0.5px solid #1a5a30}
+.tag.fb{background:#2a1a0a;color:#f90;border:0.5px solid #5a3a0a}
+.tag.tp{background:#1e1a2a;color:#a78bfa;border:0.5px solid #3a2a6a}
+.tag.new{background:#1a2a0a;color:#8f8;border:0.5px solid #3a5a1a}
+.dprompt{font-size:18px;font-weight:500;line-height:1.5;margin-bottom:6px}
+.dhint{font-size:13px;color:#aaa;margin-bottom:16px}
+.ainp{width:100%;padding:12px 14px;border:0.5px solid #333;border-radius:10px;background:#111;color:#f0f0f0;font-size:15px;font-family:inherit;resize:none;min-height:70px}
+.ainp:focus{outline:none;border-color:#2a6aaa}
+.ainp:disabled{opacity:.6}
+.cbtn{width:100%;margin-top:12px;padding:13px;border:none;border-radius:10px;background:#2563eb;color:#fff;font-size:15px;font-weight:500;cursor:pointer}
+.cbtn:disabled{opacity:.4;cursor:not-allowed}
+.fb-box{border-radius:12px;padding:14px;margin:12px 16px 0}
+.fb-box.ok{background:#0d2a1a;border:0.5px solid #1a5a30}
+.fb-box.no{background:#2a0d0d;border:0.5px solid #5a1a1a}
+.fb-lbl{font-size:12px;font-weight:500;margin-bottom:6px}
+.fb-lbl.ok{color:#2a9}
+.fb-lbl.no{color:#e05}
+.fb-txt{font-size:13px;color:#aaa;line-height:1.6}
+.fb-ans{font-size:14px;color:#f0f0f0;margin-top:6px;font-style:italic}
+.nbtn{width:calc(100% - 32px);margin:12px 16px 0;padding:13px;border:0.5px solid #333;border-radius:10px;background:#1e1e1e;color:#f0f0f0;font-size:15px;cursor:pointer}
+.nbtn:hover{border-color:#555}
+.score{display:flex;justify-content:center;gap:16px;padding:12px 16px;font-size:13px;color:#666}
+.back{display:flex;align-items:center;gap:6px;padding:8px 0;color:#aaa;font-size:14px;cursor:pointer;background:none;border:none}
+.back:hover{color:#f0f0f0}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:420px;background:#1e1e1e;border-top:0.5px solid #333;display:flex;padding:8px 0 20px}
+.nb{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;cursor:pointer;background:none;border:none;color:#666;font-size:11px}
+.nb.active{color:#4a9eff}
+.nb-icon{font-size:20px;line-height:1}
+.ld{display:flex;align-items:center;gap:8px;color:#666;font-size:13px;padding:10px 0}
+.dot{width:6px;height:6px;border-radius:50%;background:#666;animation:pu 1.2s ease-in-out infinite}
+.dot:nth-child(2){animation-delay:.2s}
+.dot:nth-child(3){animation-delay:.4s}
+@keyframes pu{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+.ta{width:100%;padding:12px 14px;border:0.5px solid #333;border-radius:10px;background:#111;color:#f0f0f0;font-size:13px;font-family:inherit;resize:none;min-height:80px;margin-bottom:10px}
+.ta:focus{outline:none;border-color:#2a6aaa}
+.sbtn{width:100%;padding:12px;border:none;border-radius:10px;background:#2563eb;color:#fff;font-size:14px;font-weight:500;cursor:pointer;margin-bottom:8px}
+.sbtn:disabled{opacity:.4;cursor:not-allowed}
+.sstatus{font-size:13px;color:#aaa;text-align:center;padding:6px}
+.irow{display:flex;gap:8px;margin-bottom:10px}
+.irow input,.irow select{flex:1;padding:10px 12px;border:0.5px solid #333;border-radius:10px;background:#111;color:#f0f0f0;font-size:14px;font-family:inherit}
+.irow input:focus,.irow select:focus{outline:none;border-color:#2a6aaa}
+.irow select option{background:#1e1e1e}
+.abtn{padding:10px 16px;border:none;border-radius:10px;background:#2563eb;color:#fff;font-size:14px;font-weight:500;cursor:pointer;white-space:nowrap}
+.ci{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid #2a2a2a;gap:10px}
+.ci:last-child{border-bottom:none}
+.ci-t{flex:1}
+.ci-p{font-size:14px;font-weight:500}
+.ci-a{font-size:13px;color:#aaa;margin-top:2px}
+.ci-m{font-size:11px;color:#555;margin-top:3px}
+.dbtn{background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:2px 6px;flex-shrink:0}
+.dbtn:hover{color:#e05}
+.tpill-row{display:flex;gap:6px;margin-bottom:14px}
+.tpill{flex:1;padding:8px;border:0.5px solid #333;border-radius:10px;background:#1e1e1e;color:#aaa;font-size:13px;cursor:pointer;text-align:center}
+.tpill.active{border-color:#2a6aaa;background:#0d2a4a;color:#4a9eff}
+.pta{width:100%;padding:12px 14px;border:0.5px solid #333;border-radius:10px;background:#111;color:#f0f0f0;font-size:14px;font-family:inherit;resize:none;min-height:60px;margin-bottom:8px}
+.pta:focus{outline:none;border-color:#2a6aaa}
+.err{background:#2a0d0d;border:0.5px solid #5a1a1a;border-radius:10px;padding:12px 14px;font-size:13px;color:#f0a0a0;margin-top:10px;line-height:1.5}
+.wi{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid #333}
+.wi:last-child{border-bottom:none}
+.wb-wrap{width:80px;height:6px;background:#111;border-radius:3px;overflow:hidden}
+.wb{height:100%;border-radius:3px;background:#e05}
+.wb.ok{background:#2a9}
+.wb.mid{background:#f90}
+.auth-wrap{max-width:420px;margin:0 auto;padding:40px 24px}
+.auth-logo{font-size:40px;text-align:center;margin-bottom:8px}
+.auth-title{font-size:22px;font-weight:600;text-align:center;margin-bottom:4px}
+.auth-sub{font-size:14px;color:#666;text-align:center;margin-bottom:32px}
+.auth-input{width:100%;padding:13px 14px;border:0.5px solid #333;border-radius:10px;background:#1e1e1e;color:#f0f0f0;font-size:15px;font-family:inherit;margin-bottom:10px}
+.auth-input:focus{outline:none;border-color:#2a6aaa}
+.auth-toggle{text-align:center;margin-top:14px;font-size:13px;color:#666}
+.auth-toggle span{color:#4a9eff;cursor:pointer}
+.auth-msg{font-size:13px;text-align:center;padding:8px;border-radius:8px;margin-top:8px}
+.auth-msg.ok{background:#0d2a1a;color:#2a9}
+.auth-msg.no{background:#2a0d0d;color:#f0a0a0}
+.lesson-card{background:#0d1a2a;border:0.5px solid #1a4a7a;border-radius:16px;padding:20px;margin:0 16px}
+.lesson-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:#4a9eff;background:#0a1a30;border:0.5px solid #1a4a7a;border-radius:20px;padding:4px 10px;margin-bottom:14px}
+.lesson-word{font-size:22px;font-weight:600;margin-bottom:4px}
+.lesson-meaning{font-size:16px;color:#4a9eff;margin-bottom:16px}
+.lesson-section{margin-bottom:14px}
+.ls-label{font-size:10px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
+.ls-body{font-size:14px;color:#ccc;line-height:1.7}
+.lesson-example{background:#111;border-radius:8px;padding:10px 12px;margin-top:6px}
+.lesson-ex-bn{font-size:15px;font-weight:500;margin-bottom:3px}
+.lesson-ex-en{font-size:13px;color:#888}
+.lesson-convo{background:#111;border-radius:8px;padding:10px 12px;margin-top:6px;border-left:2px solid #2a6aaa}
+.convo-line{font-size:13px;color:#ccc;line-height:1.8}
+.convo-line span{color:#4a9eff;font-weight:500}
+.load-overlay{position:fixed;inset:0;background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:100}
+.load-title{font-size:16px;font-weight:500}
+.load-sub{font-size:13px;color:#666;text-align:center;max-width:260px;line-height:1.5}
+.load-bar-wrap{width:200px;height:4px;background:#333;border-radius:2px;overflow:hidden}
+.load-bar{height:100%;background:#2563eb;border-radius:2px;transition:width .4s}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="load-overlay" style="display:none" class="load-overlay">
+  <div style="font-size:32px">📚</div>
+  <div class="load-title" id="lo-title">Building your session…</div>
+  <div class="load-sub" id="lo-sub">Preparing drills and lessons</div>
+  <div class="load-bar-wrap"><div class="load-bar" id="lo-bar" style="width:0%"></div></div>
+</div>
+<script>
+const SUPABASE_URL='https://oytkdujjwpitzyoiytuo.supabase.co';
+const SUPABASE_KEY='sb_publishable_FBIWe2p4CGsMjiwnBqOjew_ELQqx1jv';
+// AI calls go through our secure Vercel proxy — no API key in the browser
+const AI_PROXY='/api/claude';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+const FB=[
+  {type:'translate',prompt:'I am tired',answer:'Ami thakke gesi',category:'vocab',source:'fb',hint:'thakke gesi = exhausted'},
+  {type:'translate',prompt:'I miss you',answer:'Ami tomar jonno miss korchi',category:'translation',source:'fb'},
+  {type:'translate',prompt:'Have you eaten?',answer:'Tumi ki khaichile?',category:'translation',source:'fb'},
+  {type:'translate',prompt:'I woke up and made coffee',answer:'Ami uthe coffee banailam',category:'chaining',source:'fb',hint:'uthe = having woken up'},
+  {type:'translate',prompt:'I came home and felt tired',answer:'Ami eshe thakke gesi',category:'chaining',source:'fb',hint:'eshe = having come'},
+  {type:'translate',prompt:'I could not come because I had work',answer:'Ami ashte parini karon kaj chilo',category:'connector',source:'fb',hint:'karon = because'},
+  {type:'translate',prompt:'It is raining so I will not go',answer:'Brishti hocche tai jabo na',category:'connector',source:'fb',hint:'tai = so'},
+  {type:'translate',prompt:'I tried but could not',answer:'Ami cheshta korchilam kintu pari nai',category:'connector',source:'fb',hint:'kintu = but'},
+  {type:'flashcard',prompt:'Happy',answer:'Khushi',category:'vocab',source:'fb'},
+  {type:'flashcard',prompt:'Worried',answer:'Chintit',category:'vocab',source:'fb'},
+  {type:'flashcard',prompt:'I feel lonely',answer:'Amar ekla lage',category:'vocab',source:'fb'},
+  {type:'flashcard',prompt:'I love you',answer:'Ami tomake bhalobashi',category:'vocab',source:'fb'},
+  {type:'translate',prompt:'If you go I will go too',answer:'Jodi tumi jao ami o jabo',category:'connector',source:'fb',hint:'jodi = if'},
+  {type:'translate',prompt:'I ate and then called you',answer:'Ami kheye tomake phone korchilam',category:'chaining',source:'fb',hint:'kheye = having eaten'},
+  {type:'translate',prompt:'She came and started cooking',answer:'O eshe ranna shuru korlo',category:'chaining',source:'fb'},
+  {type:'conjugate',prompt:'Conjugate "kaj kora" (to work) — ami / tumi / o — past tense',answer:'Ami kaj korechilam / Tumi kaj korechile / O kaj korechilo',category:'conjugation',source:'fb'},
+  {type:'conjugate',prompt:'Conjugate "ranna kora" (to cook) — ami / tumi / o — present',answer:'Ami ranna kori / Tumi ranna koro / O ranna kore',category:'conjugation',source:'fb'},
+  {type:'translate',prompt:'Are you okay? Do you feel bad?',answer:'Tumi ki theek acho? Tomar ki kharap lage?',category:'translation',source:'fb'},
+  {type:'translate',prompt:'I am thinking about you',answer:'Ami tomar kotha bhabchi',category:'translation',source:'fb'},
+  {type:'translate',prompt:'What did you do today?',answer:'Ajke tumi ki korecho?',category:'translation',source:'fb'},
+  {type:'flashcard',prompt:'Because',answer:'Karon',category:'connector',source:'fb'},
+  {type:'flashcard',prompt:'So / that is why',answer:'Tai',category:'connector',source:'fb'},
+  {type:'flashcard',prompt:'But',answer:'Kintu',category:'connector',source:'fb'},
+  {type:'flashcard',prompt:'If',answer:'Jodi',category:'connector',source:'fb'},
+  {type:'flashcard',prompt:'Then / after that',answer:'Tarpor',category:'connector',source:'fb'},
+  {type:'translate',prompt:'I sat and studied Bangla',answer:'Ami boshe Bangla porashona korchilam',category:'chaining',source:'fb',hint:'boshe = having sat'},
+  {type:'translate',prompt:'I finished work and came home',answer:'Ami kaj sesh kore bashe eshechi',category:'chaining',source:'fb'},
+  {type:'conjugate',prompt:'Conjugate "golpo kora" (to chat) — ami / tumi / o — past continuous',answer:'Ami golpo korchilam / Tumi golpo korchile / O golpo korchilo',category:'conjugation',source:'fb'},
+  {type:'translate',prompt:'I am happy to be with you',answer:'Tomar shathe theke amar khushi lage',category:'translation',source:'fb'},
+  {type:'translate',prompt:'I do not feel well today',answer:'Ami ajke valo feel korchi na',category:'translation',source:'fb'},
+];
+
+let S={
+  user:null,screen:'auth',tab:'home',authMode:'login',authMsg:null,
+  progress:{streak:0,lastDate:null,totalSessions:0,totalCorrect:0,totalAttempted:0},
+  weakAreas:{},seenVocab:{},savedDrills:[],customDrills:[],
+  sessionMode:null,sessionTime:10,drills:[],lessonMap:{},drillIndex:0,
+  session:null,feedbackVisible:false,feedbackData:null,showingLesson:false,sessionError:null,
+  contentTab:'add',
+};
+
+// ── DB ──────────────────────────────────────────────────────
+async function dbLoad(){
+  if(!S.user)return;
+  const uid=S.user.id;
+  const [{data:prog},{data:weak},{data:vocab},{data:drills}]=await Promise.all([
+    sb.from('progress').select('*').eq('user_id',uid).single(),
+    sb.from('weak_areas').select('*').eq('user_id',uid),
+    sb.from('seen_vocab').select('*').eq('user_id',uid),
+    sb.from('drills').select('*').eq('user_id',uid),
+  ]);
+  if(prog)S.progress={streak:prog.streak||0,lastDate:prog.last_date,totalSessions:prog.total_sessions||0,totalCorrect:prog.total_correct||0,totalAttempted:prog.total_attempted||0};
+  if(weak){S.weakAreas={};weak.forEach(w=>{S.weakAreas[w.category]={right:w.right_count,wrong:w.wrong_count};});}
+  if(vocab){S.seenVocab={};vocab.forEach(v=>{S.seenVocab[v.vocab_key]=v.seen_at;});}
+  if(drills){
+    S.savedDrills=drills.filter(d=>d.source==='doc').map(d=>({type:d.type,prompt:d.prompt,answer:d.answer,category:d.category,hint:d.hint,source:'doc'}));
+    S.customDrills=drills.filter(d=>d.source==='custom').map(d=>({id:d.id,type:d.type,prompt:d.prompt,answer:d.answer,category:d.category,hint:d.hint,source:'custom'}));
+  }
+}
+
+async function dbSaveProgress(){
+  if(!S.user)return;
+  await sb.from('progress').upsert({user_id:S.user.id,streak:S.progress.streak,last_date:S.progress.lastDate,total_sessions:S.progress.totalSessions,total_correct:S.progress.totalCorrect,total_attempted:S.progress.totalAttempted,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+}
+
+async function dbSaveWeakArea(cat){
+  if(!S.user||!S.weakAreas[cat])return;
+  const w=S.weakAreas[cat];
+  await sb.from('weak_areas').upsert({user_id:S.user.id,category:cat,right_count:w.right,wrong_count:w.wrong},{onConflict:'user_id,category'});
+}
+
+async function dbMarkSeen(key){
+  if(!S.user)return;
+  await sb.from('seen_vocab').upsert({user_id:S.user.id,vocab_key:key,seen_at:new Date().toISOString()},{onConflict:'user_id,vocab_key'});
+}
+
+async function dbSaveDrills(drills,source){
+  if(!S.user)return;
+  await sb.from('drills').delete().eq('user_id',S.user.id).eq('source',source);
+  if(!drills.length)return;
+  await sb.from('drills').insert(drills.map(d=>({user_id:S.user.id,prompt:d.prompt,answer:d.answer,type:d.type,category:d.category||null,hint:d.hint||null,source})));
+}
+
+async function dbAddCustomDrill(d){
+  if(!S.user)return null;
+  const {data}=await sb.from('drills').insert({user_id:S.user.id,prompt:d.prompt,answer:d.answer,type:d.type,category:d.category||null,hint:d.hint||null,source:'custom'}).select().single();
+  return data;
+}
+
+async function dbDeleteDrill(id){
+  if(!S.user)return;
+  await sb.from('drills').delete().eq('id',id).eq('user_id',S.user.id);
+}
+
+// ── AI ──────────────────────────────────────────────────────
+async function callAI(sys,usr){
+  const r=await fetch(AI_PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:sys,messages:[{role:'user',content:usr}]})});
+  const d=await r.json();
+  if(d.error)throw new Error(d.error.message);
+  const t=d.content?.[0]?.text||'';if(!t)throw new Error('empty');return t;
+}
+
+async function genDrills(count,focus,mixed){
+  const types=mixed?'mix flashcard/translate/conjugate':'translate and conjugate';
+  const t=await callAI('Dhaka Bengali drill generator. Return ONLY valid JSON array. No markdown.',
+    `Generate ${count} Dhaka Bengali drills. Tumi forms. Past: korchilam/korechilam NOT korsilam. Focus:${focus}. Types:${types}. Daily life family emotions food chaining connectors. Each:{type,prompt,answer,category,hint}. NO duplicate prompts.`);
+  const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
+  if(!Array.isArray(arr)||!arr.length)throw new Error('bad');
+  return arr.map(d=>({...d,source:'ai'}));
+}
+
+async function genLesson(drill){
+  try{
+    const t=await callAI('Dhaka Bengali tutor. Return ONLY valid JSON, no markdown.',
+      `Mini lesson for this drill.\nPrompt:"${drill.prompt}" Answer:"${drill.answer}" Category:${drill.category||'vocab'}\nReturn JSON:{word,meaning,grammarNote,example:{bn,en},conversationTip} — conversationTip should end with 2 lines prefixed Jesse: and Anisha:`);
+    return JSON.parse(t.replace(/```json|```/g,'').trim());
+  }catch(e){
+    return{word:drill.answer,meaning:drill.prompt,grammarNote:'Practice this in a full sentence.',example:{bn:drill.answer,en:drill.prompt},conversationTip:`Try using this with Anisha.\nJesse: ${drill.answer}\nAnisha: [response]`};
+  }
+}
+
+async function checkAnswer(drill,ans){
+  try{
+    const t=await callAI('Dhaka Bengali tutor. ONLY JSON: {"correct":true/false,"feedback":"max 2 sentences","correctAnswer":"ideal"}. Lenient romanization. Tumi forms -chil- past korchilam not korsilam.',`Type:${drill.type}\nPrompt:${drill.prompt}\nExpected:${drill.answer}\nStudent:${ans}`);
+    return JSON.parse(t.replace(/```json|```/g,'').trim());
+  }catch(e){
+    const a=ans.toLowerCase().trim(),e2=drill.answer.toLowerCase().trim();
+    const ok=a===e2||e2.includes(a)||(a.length>4&&e2.includes(a.slice(0,Math.floor(a.length*.8))));
+    return{correct:ok,feedback:ok?'Correct!':'Not quite — see the correct answer below.',correctAnswer:drill.answer};
+  }
+}
+
+// ── SESSION ─────────────────────────────────────────────────
+function dedupe(arr){const s=new Set();return arr.filter(d=>{const k=d.prompt.toLowerCase().trim();if(s.has(k))return false;s.add(k);return true;});}
+function shuf(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}}
+function setLoad(t,s,p){document.getElementById('lo-title').textContent=t;document.getElementById('lo-sub').textContent=s;document.getElementById('lo-bar').style.width=p+'%';}
+
+function getFallback(mode,count){
+  let p=[...FB,...S.customDrills];
+  if(mode==='flashcard')p=p.filter(d=>d.type==='flashcard');
+  else if(mode==='translate')p=p.filter(d=>d.type==='translate');
+  else if(mode==='conjugate')p=p.filter(d=>['conjugate','translate'].includes(d.type));
+  shuf(p);while(p.length<count&&p.length>0)p=[...p,...p];
+  return dedupe(p).slice(0,count);
+}
+
+async function buildSession(mode,mins){
+  const count=Math.max(5,Math.floor(mins*1.5));
+  const isMix=mode==='mixed'||mode==='focus';
+  const all=[...S.savedDrills,...S.customDrills];
+  let pool=[];
+  setLoad('Building drills…','Pulling from your saved content',10);
+  if(all.length){
+    let f=[...all];
+    const wc=Object.entries(S.weakAreas).filter(([,v])=>v.wrong>v.right).map(([k])=>k);
+    if(mode==='focus'&&wc.length){const w=f.filter(d=>wc.includes(d.category));f=[...w,...f.filter(d=>!wc.includes(d.category))];}
+    if(mode==='flashcard')f=f.filter(d=>d.type==='flashcard');
+    else if(mode==='translate')f=f.filter(d=>d.type==='translate');
+    else if(mode==='conjugate')f=f.filter(d=>['conjugate','translate'].includes(d.type));
+    pool=f.slice(0,Math.ceil(count*.5));
+  }
+  const need=count-pool.length;
+  if(need>0){
+    setLoad('Generating drills…','Creating AI content',30);
+    const wc=Object.entries(S.weakAreas).filter(([,v])=>v.wrong>v.right).map(([k])=>k);
+    const focus=mode==='focus'&&wc.length?wc.join(', '):mode==='conjugate'?'kora verb conjugation':mode==='translate'?'sentence translation connectors chaining':mode==='mixed'?'vocab translation conjugation connectors chaining':'conversational daily phrases';
+    try{pool=[...pool,...await genDrills(need,focus,isMix)];}
+    catch(e){pool=[...pool,...getFallback(mode,need)];}
+  }
+  pool=dedupe(pool);shuf(pool);
+  if(!pool.length)throw new Error('No drills available');
+  setLoad('Preparing lessons…','Checking for new vocabulary',55);
+  const lessonMap={};
+  const newOnes=pool.filter(d=>!S.seenVocab[d.prompt.toLowerCase().trim()]).slice(0,5);
+  for(let i=0;i<newOnes.length;i++){
+    const d=newOnes[i];
+    setLoad('Preparing lessons…',`Lesson ${i+1} of ${newOnes.length}: "${d.prompt}"`,55+Math.round((i/newOnes.length)*35));
+    lessonMap[d.prompt.toLowerCase().trim()]=await genLesson(d);
+  }
+  setLoad('Almost ready…','Finalising',95);
+  return{drills:pool,lessonMap};
+}
+
+function updateStreak(){
+  const today=new Date().toDateString();
+  if(S.progress.lastDate!==today){
+    const y=new Date(Date.now()-86400000).toDateString();
+    S.progress.streak=S.progress.lastDate===y?(S.progress.streak||0)+1:1;
+    S.progress.lastDate=today;
+  }
+}
+
+function updateWeak(cat,ok){
+  if(!cat)return;
+  if(!S.weakAreas[cat])S.weakAreas[cat]={right:0,wrong:0};
+  if(ok)S.weakAreas[cat].right++;else S.weakAreas[cat].wrong++;
+  dbSaveWeakArea(cat);
+}
+
+// ── RENDER ──────────────────────────────────────────────────
+function renderNav(){
+  const hide=['drilling','session-pick','auth'].includes(S.screen);
+  const nav=document.getElementById('nav');if(!nav)return;
+  nav.style.display=hide?'none':'flex';
+  nav.innerHTML=[{id:'home',icon:'🏠',l:'Practice'},{id:'progress',icon:'📈',l:'Progress'},{id:'content',icon:'✏️',l:'Content'},{id:'sync',icon:'📄',l:'Doc sync'},{id:'account',icon:'👤',l:'Account'}]
+    .map(t=>`<button class="nb ${S.tab===t.id?'active':''}" onclick="goTab('${t.id}')"><span class="nb-icon">${t.icon}</span>${t.l}</button>`).join('');
+}
+
+function goTab(t){S.tab=t;S.screen=t==='home'?'home':t;render();}
+
+function render(){
+  const root=document.getElementById('root');
+  if(S.screen==='auth'){
+    if(!document.querySelector('.auth-wrap'))root.innerHTML=`<div class="app" id="app"></div>`;
+    document.getElementById('nav')&&(document.getElementById('nav').style.display='none');
+    renderAuth(document.getElementById('app'));return;
+  }
+  if(!document.getElementById('app')){root.innerHTML=`<div class="app" id="app"></div><nav class="nav" id="nav"></nav>`;}
+  renderNav();
+  ({home:rHome,progress:rProgress,content:rContent,sync:rSync,'session-pick':rPick,drilling:rDrill,account:rAccount}[S.screen]||rHome)(document.getElementById('app'));
+}
+
+// ── AUTH ────────────────────────────────────────────────────
+function renderAuth(a){
+  const isLogin=S.authMode==='login';
+  a.innerHTML=`<div class="auth-wrap">
+    <div class="auth-logo">🇧🇩</div>
+    <div class="auth-title">Bangla Practice</div>
+    <div class="auth-sub">${isLogin?'Sign in to sync across devices':'Create your account'}</div>
+    <input class="auth-input" id="ae" type="email" placeholder="Email address"/>
+    <input class="auth-input" id="ap" type="password" placeholder="Password (min 6 characters)"/>
+    <button class="btn" id="abtn" onclick="doAuth()">${isLogin?'Sign in':'Create account'}</button>
+    ${S.authMsg?`<div class="auth-msg ${S.authMsg.ok?'ok':'no'}">${S.authMsg.text}</div>`:''}
+    <div class="auth-toggle">${isLogin?`No account? <span onclick="S.authMode='signup';S.authMsg=null;render()">Sign up</span>`:`Have an account? <span onclick="S.authMode='login';S.authMsg=null;render()">Sign in</span>`}</div>
+  </div>`;
+  document.getElementById('ap').addEventListener('keydown',e=>{if(e.key==='Enter')doAuth();});
+}
+
+async function doAuth(){
+  const email=(document.getElementById('ae')?.value||'').trim();
+  const pass=document.getElementById('ap')?.value||'';
+  if(!email||!pass){S.authMsg={ok:false,text:'Please enter email and password.'};render();return;}
+  const btn=document.getElementById('abtn');btn.disabled=true;btn.textContent='Please wait…';
+  try{
+    if(S.authMode==='signup'){
+      const {error}=await sb.auth.signUp({email,password:pass});
+      if(error)throw error;
+      S.authMsg={ok:true,text:'Account created! Check your email to confirm, then sign in.'};
+      S.authMode='login';render();
+    }else{
+      const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
+      if(error)throw error;
+      S.user=data.user;
+      await dbLoad();
+      S.screen='home';S.tab='home';
+      document.getElementById('root').innerHTML=`<div class="app" id="app"></div><nav class="nav" id="nav"></nav>`;
+      render();
+    }
+  }catch(e){
+    S.authMsg={ok:false,text:e.message||'Something went wrong.'};
+    btn.disabled=false;btn.textContent=S.authMode==='login'?'Sign in':'Create account';
+    render();
+  }
+}
+
+// ── HOME ────────────────────────────────────────────────────
+function rHome(a){
+  const wc=Object.entries(S.weakAreas).filter(([,v])=>v.wrong>v.right);
+  const total=[...S.savedDrills,...S.customDrills].length;
+  a.innerHTML=`
+    <div class="header"><span class="header-title">Bangla practice</span><span class="streak">🔥 <span class="streak-count">${S.progress.streak||0}</span> day streak</span></div>
+    <div class="sec"><div class="sec-label">Start a session</div>
+      <div class="mc-full" onclick="pick('mixed')"><div class="mc-icon">🌀</div><div><div class="mc-title">Mixed lesson</div><div class="mc-sub">Flashcards, translation and conjugation together</div></div></div>
+      <div class="grid2">
+        <div class="mc" onclick="pick('flashcard')"><div class="mc-icon">🃏</div><div class="mc-title">Flashcards</div><div class="mc-sub">Vocab and phrases</div></div>
+        <div class="mc" onclick="pick('translate')"><div class="mc-icon">🔄</div><div class="mc-title">Translation</div><div class="mc-sub">English to Bangla</div></div>
+        <div class="mc" onclick="pick('conjugate')"><div class="mc-icon">📝</div><div class="mc-title">Conjugation</div><div class="mc-sub">Verb forms</div></div>
+        <div class="mc ${wc.length?'focus':''}" onclick="pick('focus')"><div class="mc-icon">🎯</div><div class="mc-title">Focus session</div><div class="mc-sub">${wc.length?wc.map(([k])=>k).slice(0,2).join(', '):'No weak areas yet'}</div></div>
+      </div>
+    </div>
+    <div class="sec"><div class="stat-row">
+      <div class="stat"><div class="stat-n">${S.progress.totalSessions||0}</div><div class="stat-l">Sessions</div></div>
+      <div class="stat"><div class="stat-n">${S.progress.totalCorrect||0}</div><div class="stat-l">Correct</div></div>
+      <div class="stat"><div class="stat-n">${total||FB.length}</div><div class="stat-l">Drills</div></div>
+    </div></div>`;
+}
+
+// ── SESSION PICK ─────────────────────────────────────────────
+function pick(m){S.sessionMode=m;S.sessionError=null;S.screen='session-pick';render();}
+
+function rPick(a){
+  const isMix=S.sessionMode==='mixed';
+  const lbl={mixed:'Mixed lesson',flashcard:'Flashcards',translate:'Translation',conjugate:'Conjugation',focus:'Focus session'}[S.sessionMode];
+  a.innerHTML=`
+    <div class="header"><button class="back" onclick="S.screen='home';render()">← Back</button></div>
+    <div class="sec">
+      <div class="sec-label">Session length</div>
+      <div class="time-row">${[5,10,15,20].map(t=>`<button class="tb ${S.sessionTime===t?'active':''}" onclick="S.sessionTime=${t};render()">${t} min</button>`).join('')}</div>
+      <div class="card" style="margin-bottom:14px;font-size:13px;color:#aaa;line-height:1.7">
+        Mode: <strong style="color:#f0f0f0">${lbl}</strong><br>
+        Approx. ${Math.floor(S.sessionTime*1.5)} drills<br>
+        New vocabulary gets a mini lesson before drilling
+      </div>
+      <button class="btn ${isMix?'mix':''}" id="sbtn" onclick="startSess()">Start session</button>
+      ${S.sessionError?`<div class="err" style="margin-top:10px">⚠️ ${S.sessionError}</div>`:''}
+    </div>`;
+}
+
+async function startSess(){
+  document.getElementById('sbtn').disabled=true;
+  S.sessionError=null;updateStreak();
+  document.getElementById('load-overlay').style.display='flex';
+  setLoad('Building your session…','This takes a moment',5);
+  try{
+    const {drills,lessonMap}=await buildSession(S.sessionMode,S.sessionTime);
+    S.drills=drills;S.lessonMap=lessonMap;S.drillIndex=0;
+    S.session={correct:0,wrong:0};S.feedbackVisible=false;S.feedbackData=null;S.showingLesson=false;
+    document.getElementById('load-overlay').style.display='none';
+    S.screen='drilling';render();
+  }catch(e){
+    document.getElementById('load-overlay').style.display='none';
+    S.sessionError=(e.message||'Error')+'. Please try again.';
+    document.getElementById('sbtn').disabled=false;render();
+  }
+}
+
+// ── DRILLING ─────────────────────────────────────────────────
+function rDrill(a){
+  const d=S.drills[S.drillIndex];if(!d){goHome();return;}
+  const pct=Math.round((S.drillIndex/S.drills.length)*100);
+  const isMix=S.sessionMode==='mixed'||S.sessionMode==='focus';
+  const src=d.source||'ai';
+  const tl={flashcard:'Flashcard',translate:'Translate',conjugate:'Conjugate'}[d.type]||d.type;
+  const srcTag=src==='custom'?'<span class="tag custom">⭐ Custom</span>':src==='doc'?'<span class="tag doc">📄 Doc</span>':src==='fb'?'<span class="tag fb">📚 Built-in</span>':'<span class="tag ai">✨ AI</span>';
+  const isLast=S.drillIndex+1>=S.drills.length;
+  const lesson=S.lessonMap[d.prompt.toLowerCase().trim()];
+  const isNew=lesson&&!S.seenVocab[d.prompt.toLowerCase().trim()];
+  if(isNew&&S.showingLesson!==d.prompt){S.showingLesson=d.prompt;rLesson(a,d,lesson,pct);return;}
+  if(isNew&&S.showingLesson===d.prompt){rLesson(a,d,lesson,pct);return;}
+  const inp=!S.feedbackVisible
+    ?`<textarea class="ainp" id="ainp" placeholder="${d.type==='flashcard'?'Type the meaning…':'Type your Bangla/Banglish answer…'}" rows="3"></textarea><button class="cbtn" id="cbtn" onclick="subAns()">Check answer</button>`
+    :`<textarea class="ainp" disabled rows="3">${(S.feedbackData?.userAnswer||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea>`;
+  a.innerHTML=`
+    <div class="header"><button class="back" onclick="goHome()">✕ End</button><span style="font-size:13px;color:#666">${S.drillIndex+1} / ${S.drills.length}</span></div>
+    <div class="pbar-wrap"><div class="pbar" style="width:${pct}%"></div></div>
+    <div class="dc">
+      <div class="dmeta">${srcTag}${isMix?`<span class="tag tp">${tl}</span>`:''}${isNew?'<span class="tag new">🌱 New</span>':''}</div>
+      <div class="dprompt">${d.prompt}</div>
+      ${d.hint?`<div class="dhint">Hint: ${d.hint}</div>`:''}
+      ${inp}
+    </div>
+    ${S.feedbackVisible?`
+      <div class="fb-box ${S.feedbackData?.correct?'ok':'no'}">
+        <div class="fb-lbl ${S.feedbackData?.correct?'ok':'no'}">${S.feedbackData?.correct?'✓ Correct':'✗ Not quite'}</div>
+        <div class="fb-txt">${S.feedbackData?.feedback||''}</div>
+        ${!S.feedbackData?.correct?`<div class="fb-ans">${S.feedbackData?.correctAnswer||d.answer}</div>`:''}
+      </div>
+      <button class="nbtn" onclick="${isLast?'goHome()':'nextD()'}">${isLast?'Done ✓':'Next →'}</button>
+    `:`<div class="score">✓ ${S.session.correct} &nbsp; ✗ ${S.session.wrong}</div>`}`;
+  if(!S.feedbackVisible){const i=document.getElementById('ainp');if(i){i.focus();i.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();subAns();}});}}
+}
+
+function rLesson(a,d,lesson,pct){
+  const lines=(lesson.conversationTip||'').split('\n').filter(Boolean);
+  const convo=lines.filter(l=>l.startsWith('Jesse:')||l.startsWith('Anisha:'));
+  const tip=lines.filter(l=>!l.startsWith('Jesse:')&&!l.startsWith('Anisha:')).join(' ');
+  a.innerHTML=`
+    <div class="header"><button class="back" onclick="goHome()">✕ End</button><span style="font-size:13px;color:#666">${S.drillIndex+1} / ${S.drills.length}</span></div>
+    <div class="pbar-wrap"><div class="pbar" style="width:${pct}%"></div></div>
+    <div class="lesson-card">
+      <div class="lesson-badge">📖 New vocabulary</div>
+      <div class="lesson-word">${lesson.word||d.answer}</div>
+      <div class="lesson-meaning">${lesson.meaning||d.prompt}</div>
+      <div class="lesson-section"><div class="ls-label">Grammar note</div><div class="ls-body">${lesson.grammarNote||''}</div></div>
+      <div class="lesson-section"><div class="ls-label">Example</div>
+        <div class="lesson-example"><div class="lesson-ex-bn">${lesson.example?.bn||d.answer}</div><div class="lesson-ex-en">${lesson.example?.en||d.prompt}</div></div>
+      </div>
+      <div class="lesson-section"><div class="ls-label">How to use it</div>
+        ${tip?`<div class="ls-body" style="margin-bottom:8px">${tip}</div>`:''}
+        ${convo.length?`<div class="lesson-convo">${convo.map(l=>{const isJ=l.startsWith('Jesse:');return`<div class="convo-line"><span>${isJ?'Jesse':'Anisha'}:</span> ${l.replace(/^Jesse:|^Anisha:/,'').trim()}</div>`;}).join('')}</div>`:''}
+      </div>
+    </div>
+    <button class="nbtn" onclick="dismissLesson()">Got it — start the drill →</button>`;
+}
+
+function dismissLesson(){
+  const d=S.drills[S.drillIndex];
+  const key=d.prompt.toLowerCase().trim();
+  S.seenVocab[key]=new Date().toISOString();
+  S.showingLesson=null;
+  dbMarkSeen(key);render();
+}
+
+async function subAns(){
+  const i=document.getElementById('ainp');const ans=(i?.value||'').trim();if(!ans)return;
+  const b=document.getElementById('cbtn');if(b){b.disabled=true;b.textContent='Checking…';}
+  const d=S.drills[S.drillIndex];
+  const result=await checkAnswer(d,ans);
+  S.feedbackData={...result,userAnswer:ans};S.feedbackVisible=true;
+  if(result.correct)S.session.correct++;else S.session.wrong++;
+  updateWeak(d.category||'vocab',result.correct);
+  S.progress.totalAttempted=(S.progress.totalAttempted||0)+1;
+  if(result.correct)S.progress.totalCorrect=(S.progress.totalCorrect||0)+1;
+  dbSaveProgress();render();
+}
+
+function nextD(){S.drillIndex++;S.feedbackVisible=false;S.feedbackData=null;S.showingLesson=null;render();}
+
+function goHome(){
+  if(S.drillIndex>0){S.progress.totalSessions=(S.progress.totalSessions||0)+1;dbSaveProgress();}
+  S.screen='home';S.tab='home';S.showingLesson=null;render();
+}
+
+// ── PROGRESS ────────────────────────────────────────────────
+function rProgress(a){
+  const tot=S.progress.totalAttempted||0,cor=S.progress.totalCorrect||0;
+  const pct=tot>0?Math.round((cor/tot)*100):0;
+  const weak=Object.entries(S.weakAreas).sort(([,a],[,b])=>(b.wrong-b.right)-(a.wrong-a.right)).slice(0,6);
+  const seenCount=Object.keys(S.seenVocab||{}).length;
+  a.innerHTML=`
+    <div class="header"><span class="header-title">Progress</span></div>
+    <div class="sec"><div class="stat-row">
+      <div class="stat"><div class="stat-n">${S.progress.streak||0}🔥</div><div class="stat-l">Streak</div></div>
+      <div class="stat"><div class="stat-n">${S.progress.totalSessions||0}</div><div class="stat-l">Sessions</div></div>
+      <div class="stat"><div class="stat-n">${pct}%</div><div class="stat-l">Accuracy</div></div>
+    </div></div>
+    <div class="sec"><div class="stat-row">
+      <div class="stat"><div class="stat-n">${tot}</div><div class="stat-l">Drills done</div></div>
+      <div class="stat"><div class="stat-n">${seenCount}</div><div class="stat-l">Vocab learned</div></div>
+      <div class="stat"><div class="stat-n">${[...S.savedDrills,...S.customDrills].length}</div><div class="stat-l">Saved drills</div></div>
+    </div></div>
+    <div class="sec"><div class="sec-label">Areas breakdown</div><div class="card">
+      ${weak.length===0?`<div style="text-align:center;padding:20px 0;color:#555;font-size:14px">Complete some sessions to see your breakdown</div>`:
+        weak.map(([cat,v])=>{const t=v.right+v.wrong,p=t>0?Math.round((v.right/t)*100):0,cls=p>=70?'ok':p>=40?'mid':'';
+          return`<div class="wi"><div><div style="font-size:14px">${cat}</div><div style="font-size:11px;color:#555">${v.right}/${t} correct</div></div><div class="wb-wrap"><div class="wb ${cls}" style="width:${p}%"></div></div></div>`;}).join('')}
+    </div></div>
+    ${weak.some(([,v])=>v.wrong>v.right)?`<div class="sec"><button class="btn" onclick="pick('focus')">🎯 Start focus session</button></div>`:''}`;
+}
+
+// ── CONTENT ─────────────────────────────────────────────────
+function rContent(a){
+  const t=S.contentTab||'add';const custom=S.customDrills||[];const saved=S.savedDrills||[];
+  a.innerHTML=`
+    <div class="header"><span class="header-title">Content</span></div>
+    <div class="sec">
+      <div class="tpill-row">
+        <button class="tpill ${t==='add'?'active':''}" onclick="S.contentTab='add';render()">Add content</button>
+        <button class="tpill ${t==='browse'?'active':''}" onclick="S.contentTab='browse';render()">Browse (${custom.length+saved.length})</button>
+      </div>
+      ${t==='add'?`
+        <div style="margin-bottom:18px">
+          <div class="sec-label" style="margin-bottom:8px">Add a word or phrase</div>
+          <div class="irow"><input id="cp" placeholder="English (e.g. I am tired)"/></div>
+          <div class="irow"><input id="ca" placeholder="Banglish (e.g. Ami thakke gesi)"/></div>
+          <div class="irow">
+            <select id="ct"><option value="flashcard">Flashcard</option><option value="translate">Translation</option><option value="conjugate">Conjugation</option></select>
+            <select id="cc"><option value="vocab">Vocab</option><option value="translation">Translation</option><option value="conjugation">Conjugation</option><option value="chaining">Chaining</option><option value="connector">Connector</option></select>
+          </div>
+          <div class="irow"><input id="ch" placeholder="Hint (optional)"/><button class="abtn" onclick="addDrill()">Add</button></div>
+        </div>
+        <div style="border-top:0.5px solid #2a2a2a;padding-top:16px">
+          <div class="sec-label" style="margin-bottom:6px">Generate from a topic</div>
+          <div style="font-size:13px;color:#aaa;margin-bottom:10px">Describe what you want to practice.</div>
+          <textarea class="pta" id="topic" placeholder="e.g. Phrases for coming home and asking Anisha about her day"></textarea>
+          <button class="sbtn" id="topicbtn" onclick="genTopic()">Generate drills for this topic</button>
+          <div id="tst" class="sstatus"></div>
+        </div>
+      `:`
+        ${custom.length?`<div class="sec-label">Custom (${custom.length})</div><div class="card" style="margin-bottom:14px">${custom.map((d,i)=>`<div class="ci"><div class="ci-t"><div class="ci-p">${d.prompt}</div><div class="ci-a">${d.answer}</div><div class="ci-m">${d.type}·${d.category||''}${d.hint?' · '+d.hint:''}</div></div><button class="dbtn" onclick="delC('${d.id}',${i})">×</button></div>`).join('')}</div>`:''}
+        ${saved.length?`<div class="sec-label">From doc (${saved.length})</div><div class="card">${saved.slice(0,30).map(d=>`<div class="ci"><div class="ci-t"><div class="ci-p">${d.prompt}</div><div class="ci-a">${d.answer}</div><div class="ci-m">${d.type}·${d.category||''}</div></div></div>`).join('')}${saved.length>30?`<div style="text-align:center;padding:10px;font-size:13px;color:#555">+${saved.length-30} more</div>`:''}</div>`:''}
+        ${!custom.length&&!saved.length?`<div style="text-align:center;padding:40px 0;color:#555;font-size:14px">No content yet.</div>`:''}
+      `}
+    </div>`;
+}
+
+async function addDrill(){
+  const p=(document.getElementById('cp')?.value||'').trim();
+  const ans=(document.getElementById('ca')?.value||'').trim();
+  if(!p||!ans){alert('Fill in both fields.');return;}
+  const d={type:document.getElementById('ct')?.value||'flashcard',prompt:p,answer:ans,category:document.getElementById('cc')?.value||'vocab',hint:(document.getElementById('ch')?.value||'').trim()||undefined,source:'custom'};
+  const saved=await dbAddCustomDrill(d);
+  if(saved)d.id=saved.id;
+  S.customDrills.push(d);S.contentTab='browse';render();
+}
+
+async function delC(id,idx){
+  if(id)await dbDeleteDrill(id);
+  S.customDrills.splice(idx,1);render();
+}
+
+async function genTopic(){
+  const topic=(document.getElementById('topic')?.value||'').trim();if(!topic)return;
+  const btn=document.getElementById('topicbtn'),st=document.getElementById('tst');
+  btn.disabled=true;st.textContent='Generating…';
+  try{
+    const t=await callAI('Dhaka Bengali drill generator. Return ONLY valid JSON array. No markdown.',`Generate 8 conversational Dhaka Bengali practice drills for: "${topic}"\nTumi forms. Past: korchilam not korsilam. Mix flashcard/translate/conjugate.\nJSON:[{type,prompt,answer,category,hint}]`);
+    const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
+    for(const d of arr.map(d=>({...d,source:'custom'}))){
+      const saved=await dbAddCustomDrill(d);if(saved)d.id=saved.id;S.customDrills.push(d);
+    }
+    st.textContent=`✓ Added ${arr.length} drills`;
+    setTimeout(()=>{S.contentTab='browse';render();},600);
+  }catch(e){st.textContent='Could not generate — try again.';btn.disabled=false;}
+}
+
+// ── SYNC ────────────────────────────────────────────────────
+function parseDoc(text){
+  const out=[];
+  text.split('\n').map(l=>l.trim()).filter(Boolean).forEach(line=>{
+    const v=line.match(/^([a-zA-Z\s]{2,35})\s*[=\/]\s*(.{2,55})$/);
+    if(v){out.push({type:'flashcard',prompt:v[2].trim(),answer:v[1].trim(),category:'vocab',source:'doc'});out.push({type:'flashcard',prompt:v[1].trim(),answer:v[2].trim(),category:'vocab',source:'doc'});}
+    const s=line.match(/^(.{10,60})\s*=\s*(.{5,80})$/);
+    if(s&&s[1].includes(' ')&&s[2].includes(' '))out.push({type:'translate',prompt:s[2].trim(),answer:s[1].trim(),category:'translation',source:'doc'});
+  });
+  return dedupe(out).slice(0,80);
+}
+
+function rSync(a){
+  a.innerHTML=`
+    <div class="header"><span class="header-title">Doc sync</span></div>
+    <div class="sec">
+      <div class="sec-label">Paste your Google Doc content</div>
+      <div class="card" style="margin-bottom:12px;font-size:13px;color:#aaa;line-height:1.6">
+        Open your Google Doc → Edit → Select all → Copy → Paste below.<br><br>
+        ${S.savedDrills.length?`<span style="color:#2a9">✓ ${S.savedDrills.length} drills synced.</span> Re-syncing replaces them.`:'No doc synced yet.'}
+      </div>
+      <textarea class="ta" id="di" placeholder="Paste lesson content here…"></textarea>
+      <button class="sbtn" id="syncbtn" onclick="syncDoc()">Parse and sync</button>
+      <div id="sst" class="sstatus"></div>
+    </div>`;
+}
+
+async function syncDoc(){
+  const text=(document.getElementById('di')?.value||'').trim();if(!text)return;
+  const btn=document.getElementById('syncbtn'),st=document.getElementById('sst');
+  btn.disabled=true;st.textContent='Parsing…';
+  const basic=parseDoc(text);st.textContent='Running AI extraction…';
+  try{
+    const t=await callAI('Bangla lesson parser. Return ONLY JSON array no markdown.',`Extract up to 50 drills. Tumi forms -chil- past korchilam not korsilam. Types:flashcard/translate/conjugate. Fields:type,prompt,answer,category,hint. NO duplicates.\nLesson:\n${text.slice(0,3500)}`);
+    const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
+    S.savedDrills=dedupe([...basic,...arr.map(d=>({...d,source:'doc'}))]).slice(0,120);
+  }catch(e){S.savedDrills=basic;}
+  st.textContent='Saving to your account…';
+  await dbSaveDrills(S.savedDrills,'doc');
+  st.textContent=`✓ ${S.savedDrills.length} drills synced`;btn.disabled=false;
+}
+
+// ── ACCOUNT ─────────────────────────────────────────────────
+function rAccount(a){
+  a.innerHTML=`
+    <div class="header"><span class="header-title">Account</span></div>
+    <div class="sec">
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-size:13px;color:#aaa;margin-bottom:4px">Signed in as</div>
+        <div style="font-size:15px;font-weight:500">${S.user?.email||''}</div>
+      </div>
+      <div class="card" style="font-size:13px;color:#aaa;line-height:1.7;margin-bottom:14px">
+        Progress, drills and vocab sync across all devices. Sign in with the same account anywhere to access everything.
+      </div>
+      <button class="btn danger" onclick="signOut()">Sign out</button>
+    </div>`;
+}
+
+async function signOut(){
+  await sb.auth.signOut();
+  Object.assign(S,{user:null,screen:'auth',authMode:'login',authMsg:null,progress:{streak:0,lastDate:null,totalSessions:0,totalCorrect:0,totalAttempted:0},weakAreas:{},seenVocab:{},savedDrills:[],customDrills:[]});
+  document.getElementById('root').innerHTML='';render();
+}
+
+// ── INIT ────────────────────────────────────────────────────
+async function init(){
+  document.getElementById('root').innerHTML=`<div style="position:fixed;inset:0;background:#111;display:flex;align-items:center;justify-content:center;font-size:40px">🇧🇩</div>`;
+  const {data:{session}}=await sb.auth.getSession();
+  if(session?.user){
+    S.user=session.user;await dbLoad();S.screen='home';S.tab='home';
+    document.getElementById('root').innerHTML=`<div class="app" id="app"></div><nav class="nav" id="nav"></nav>`;
+  }else{
+    S.screen='auth';document.getElementById('root').innerHTML='';
+  }
+  render();
+}
+init();
+</script>
+</body>
+</html>
