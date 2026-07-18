@@ -14,7 +14,6 @@ export default async function handler(req, res) {
 
   try {
     const { system, messages, max_tokens } = req.body;
-    // Combine system prompt + user message for Gemini
     const userMsg = messages?.[0]?.content || '';
     const fullPrompt = system ? `${system}\n\n${userMsg}` : userMsg;
 
@@ -32,12 +31,27 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
-    if (data.error) return res.status(400).json({ error: data.error.message });
 
-    // Translate Gemini response to Anthropic-compatible shape so the frontend needs no changes
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    // Surface Gemini errors clearly so the frontend can show them
+    if (data.error) {
+      console.error('Gemini error:', JSON.stringify(data.error));
+      return res.status(400).json({ error: data.error.message, detail: data.error });
+    }
+
+    if (!data.candidates?.length) {
+      console.error('No candidates in Gemini response:', JSON.stringify(data));
+      return res.status(500).json({ error: 'No response from Gemini', detail: data });
+    }
+
+    const text = data.candidates[0]?.content?.parts?.[0]?.text || '';
+    if (!text) {
+      return res.status(500).json({ error: 'Empty response from Gemini' });
+    }
+
+    // Return in Anthropic-compatible shape so frontend needs no changes
     return res.status(200).json({ content: [{ type: 'text', text }] });
   } catch (err) {
+    console.error('Proxy error:', err);
     return res.status(500).json({ error: err.message });
   }
 }
