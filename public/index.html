@@ -255,39 +255,104 @@ async function dbDeleteDrill(id){
 
 // ── AI ──────────────────────────────────────────────────────
 async function callAI(sys,usr){
-  const r=await fetch(AI_PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:sys,messages:[{role:'user',content:usr}]})});
+  const r=await fetch(AI_PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'gemini-1.5-flash',max_tokens:1500,system:sys,messages:[{role:'user',content:usr}]})});
   const d=await r.json();
-  if(d.error)throw new Error(d.error.message);
-  const t=d.content?.[0]?.text||'';if(!t)throw new Error('empty');return t;
+  if(d.error)throw new Error(d.error+' | '+(d.detail?.message||''));
+  const t=d.content?.[0]?.text||'';if(!t)throw new Error('empty response');return t;
 }
 
 async function genDrills(count,focus,mixed){
-  const types=mixed?'mix flashcard/translate/conjugate':'translate and conjugate';
-  const t=await callAI('Dhaka Bengali drill generator. Return ONLY valid JSON array. No markdown.',
-    `Generate ${count} Dhaka Bengali drills. Tumi forms. Past: korchilam/korechilam NOT korsilam. Focus:${focus}. Types:${types}. Daily life family emotions food chaining connectors. Each:{type,prompt,answer,category,hint}. NO duplicate prompts.`);
-  const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
-  if(!Array.isArray(arr)||!arr.length)throw new Error('bad');
+  const types=mixed
+    ?'a mix of: flashcard (English prompt → Banglish answer), translate (English sentence → Banglish sentence), and conjugate (verb conjugation task)'
+    :'translate (English sentence → Banglish) and conjugate (verb conjugation tasks)';
+  const sys=`You are a Dhaka Bengali language tutor generating practice drills for an English speaker learning conversational Bangla.
+STRICT RULES:
+- Always use informal TUMI forms (not apni)
+- Past tense endings: korechilam/korechile/korechilo OR korchilam/korchile/korchilo (NEVER korsilam/korsila)
+- Keep everything conversational — phrases Jesse would say to his wife Anisha or her family
+- Return ONLY a valid JSON array. No markdown fences, no explanation, no extra text.`;
+  const usr=`Generate ${count} practice drills focused on: ${focus}
+Drill types to include: ${types}
+
+Each drill must be a JSON object with these fields:
+- type: "flashcard" | "translate" | "conjugate"
+- prompt: for flashcard = English word/phrase; for translate = English sentence; for conjugate = clear task like "Conjugate 'ranna kora' (to cook) for ami, tumi, o in present tense"
+- answer: for flashcard = Banglish word/phrase; for translate = full Banglish sentence; for conjugate = all three forms like "Ami ranna kori / Tumi ranna koro / O ranna kore"
+- category: one of "vocab" | "translation" | "conjugation" | "chaining" | "connector"
+- hint: optional short grammar hint
+
+No duplicate prompts. Return the JSON array only.`;
+  const t=await callAI(sys,usr);
+  const clean=t.replace(/```json|```/g,'').trim();
+  const arr=JSON.parse(clean);
+  if(!Array.isArray(arr)||!arr.length)throw new Error('bad response');
   return arr.map(d=>({...d,source:'ai'}));
 }
 
 async function genLesson(drill){
+  const sys=`You are a Dhaka Bengali tutor creating a mini vocabulary lesson. Return ONLY valid JSON with no markdown fences or extra text.`;
+  const usr=`Create a mini lesson for this Bangla practice drill.
+
+Drill type: ${drill.type}
+English prompt: "${drill.prompt}"
+Banglish answer: "${drill.answer}"
+Category: ${drill.category||'vocab'}
+
+The student is an English speaker learning conversational Dhaka Bengali (tumi forms, informal) to speak with his wife Anisha and her family.
+
+Return a JSON object with exactly these fields:
+{
+  "word": "the key Banglish word or phrase from the answer",
+  "meaning": "the English meaning",
+  "grammarNote": "2-3 sentences explaining the grammar pattern. E.g. how 'amar X lage' means 'I feel X', or how verb chaining works. Mention tumi forms where relevant.",
+  "example": {
+    "bn": "a natural example sentence in Banglish using this word/phrase",
+    "en": "the English translation of that sentence"
+  },
+  "conversationTip": "1-2 sentences on when and how to use this naturally with Anisha or her family. Then provide a short realistic exchange on two separate lines starting with 'Jesse:' and 'Anisha:'"
+}`;
   try{
-    const t=await callAI('Dhaka Bengali tutor. Return ONLY valid JSON, no markdown.',
-      `Mini lesson for this drill.\nPrompt:"${drill.prompt}" Answer:"${drill.answer}" Category:${drill.category||'vocab'}\nReturn JSON:{word,meaning,grammarNote,example:{bn,en},conversationTip} — conversationTip should end with 2 lines prefixed Jesse: and Anisha:`);
+    const t=await callAI(sys,usr);
     return JSON.parse(t.replace(/```json|```/g,'').trim());
   }catch(e){
-    return{word:drill.answer,meaning:drill.prompt,grammarNote:'Practice this in a full sentence.',example:{bn:drill.answer,en:drill.prompt},conversationTip:`Try using this with Anisha.\nJesse: ${drill.answer}\nAnisha: [response]`};
+    return{word:drill.answer,meaning:drill.prompt,grammarNote:'Practice using this word in a full sentence with tumi forms.',example:{bn:drill.answer,en:drill.prompt},conversationTip:`Use this naturally in conversation.\nJesse: ${drill.answer}\nAnisha: Hae, bujhechi!`};
   }
 }
 
 async function checkAnswer(drill,ans){
+  const sys=`You are a Dhaka Bengali tutor checking a student's answer. Return ONLY valid JSON with no markdown or extra text.
+Rules for marking:
+- Be lenient with romanization spelling variations (e.g. "korchilam" and "korchilaam" are both fine)
+- Tumi forms are correct, apni forms are wrong unless the drill specifically asks for apni
+- Past tense should use -chil- endings (korchilam/korechilam), NOT -sil- endings (korsilam)
+- Accept reasonable synonym answers if the meaning is clearly correct
+- For flashcards, accept either the English or Banglish if both make sense`;
+  const usr=`Check this student's answer for a Dhaka Bengali drill.
+
+Drill type: ${drill.type}
+Question shown to student: "${drill.prompt}"
+Expected correct answer: "${drill.answer}"
+Student's answer: "${ans}"
+
+Is the student's answer correct or close enough to be marked correct?
+
+Return JSON with exactly these fields:
+{
+  "correct": true or false,
+  "feedback": "1-2 sentences of specific, helpful feedback. If correct, briefly affirm and add one useful tip. If wrong, clearly explain what was incorrect and why.",
+  "correctAnswer": "the ideal answer the student should remember"
+}`;
   try{
-    const t=await callAI('Dhaka Bengali tutor. ONLY JSON: {"correct":true/false,"feedback":"max 2 sentences","correctAnswer":"ideal"}. Lenient romanization. Tumi forms -chil- past korchilam not korsilam.',`Type:${drill.type}\nPrompt:${drill.prompt}\nExpected:${drill.answer}\nStudent:${ans}`);
-    return JSON.parse(t.replace(/```json|```/g,'').trim());
+    const t=await callAI(sys,usr);
+    const result=JSON.parse(t.replace(/```json|```/g,'').trim());
+    if(typeof result.correct!=='boolean')throw new Error('bad shape');
+    return result;
   }catch(e){
-    const a=ans.toLowerCase().trim(),e2=drill.answer.toLowerCase().trim();
-    const ok=a===e2||e2.includes(a)||(a.length>4&&e2.includes(a.slice(0,Math.floor(a.length*.8))));
-    return{correct:ok,feedback:ok?'Correct!':'Not quite — see the correct answer below.',correctAnswer:drill.answer};
+    // Local fallback — only used if AI call fails entirely
+    const a=ans.toLowerCase().trim();
+    const e2=drill.answer.toLowerCase().trim();
+    const ok=a===e2||e2.includes(a)||(a.length>4&&e2.startsWith(a.slice(0,Math.floor(a.length*.7))));
+    return{correct:ok,feedback:ok?'Correct! Well done.':'Not quite — check the correct answer below and note any differences.',correctAnswer:drill.answer};
   }
 }
 
