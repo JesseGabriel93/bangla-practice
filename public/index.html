@@ -320,13 +320,43 @@ Return a JSON object with exactly these fields:
 }
 
 async function checkAnswer(drill,ans){
+  // Construct drills are open-ended — no fixed answer, AI evaluates usage only
+  if(drill.type==='construct'){
+    const sys=`You are a Dhaka Bengali tutor evaluating a student's sentence construction. Return ONLY valid JSON, no markdown.`;
+    const usr=`The student was asked to construct a sentence using this Bangla word or pattern: "${drill.prompt}"
+Their answer: "${ans}"
+
+Evaluate whether:
+1. They correctly used the word/pattern in a grammatically valid Dhaka Bengali sentence
+2. They used tumi forms (not apni)
+3. The sentence makes natural conversational sense
+
+Do NOT penalise them for not matching any specific expected answer — any valid sentence using the pattern correctly is correct.
+
+Return JSON:
+{
+  "correct": true or false,
+  "feedback": "2-3 sentences of specific feedback. Point out exactly what they did right or wrong. If wrong, show them a corrected version of their sentence.",
+  "correctAnswer": "one good example sentence using the pattern (for reference, not as the only right answer)"
+}`;
+    try{
+      const t=await callAI(sys,usr);
+      const result=JSON.parse(t.replace(/```json|```/g,'').trim());
+      if(typeof result.correct!=='boolean')throw new Error('bad');
+      return result;
+    }catch(e){
+      return{correct:true,feedback:'Your sentence has been noted. Keep practicing using this pattern in different contexts.',correctAnswer:drill.answer||''};
+    }
+  }
+
+  // Fixed-answer drills (flashcard, translate, conjugate)
   const sys=`You are a Dhaka Bengali tutor checking a student's answer. Return ONLY valid JSON with no markdown or extra text.
 Rules for marking:
 - Be lenient with romanization spelling variations (e.g. "korchilam" and "korchilaam" are both fine)
 - Tumi forms are correct, apni forms are wrong unless the drill specifically asks for apni
 - Past tense should use -chil- endings (korchilam/korechilam), NOT -sil- endings (korsilam)
 - Accept reasonable synonym answers if the meaning is clearly correct
-- For flashcards, accept either the English or Banglish if both make sense`;
+- For flashcards, accept either the English or Banglish if the meaning is right`;
   const usr=`Check this student's answer for a Dhaka Bengali drill.
 
 Drill type: ${drill.type}
@@ -334,12 +364,12 @@ Question shown to student: "${drill.prompt}"
 Expected correct answer: "${drill.answer}"
 Student's answer: "${ans}"
 
-Is the student's answer correct or close enough to be marked correct?
+Is the student's answer correct or close enough?
 
-Return JSON with exactly these fields:
+Return JSON:
 {
   "correct": true or false,
-  "feedback": "1-2 sentences of specific, helpful feedback. If correct, briefly affirm and add one useful tip. If wrong, clearly explain what was incorrect and why.",
+  "feedback": "1-2 sentences of specific helpful feedback. If correct, affirm and add one useful tip. If wrong, explain what was incorrect and why.",
   "correctAnswer": "the ideal answer the student should remember"
 }`;
   try{
@@ -348,11 +378,10 @@ Return JSON with exactly these fields:
     if(typeof result.correct!=='boolean')throw new Error('bad shape');
     return result;
   }catch(e){
-    // Local fallback — only used if AI call fails entirely
     const a=ans.toLowerCase().trim();
     const e2=drill.answer.toLowerCase().trim();
     const ok=a===e2||e2.includes(a)||(a.length>4&&e2.startsWith(a.slice(0,Math.floor(a.length*.7))));
-    return{correct:ok,feedback:ok?'Correct! Well done.':'Not quite — check the correct answer below and note any differences.',correctAnswer:drill.answer};
+    return{correct:ok,feedback:ok?'Correct! Well done.':'Not quite — check the correct answer below.',correctAnswer:drill.answer};
   }
 }
 
@@ -556,30 +585,37 @@ function rDrill(a){
   const pct=Math.round((S.drillIndex/S.drills.length)*100);
   const isMix=S.sessionMode==='mixed'||S.sessionMode==='focus';
   const src=d.source||'ai';
-  const tl={flashcard:'Flashcard',translate:'Translate',conjugate:'Conjugate'}[d.type]||d.type;
+  const tl={flashcard:'Flashcard',translate:'Translate',conjugate:'Conjugate',construct:'Construct'}[d.type]||d.type;
   const srcTag=src==='custom'?'<span class="tag custom">⭐ Custom</span>':src==='doc'?'<span class="tag doc">📄 Doc</span>':src==='fb'?'<span class="tag fb">📚 Built-in</span>':'<span class="tag ai">✨ AI</span>';
   const isLast=S.drillIndex+1>=S.drills.length;
   const lesson=S.lessonMap[d.prompt.toLowerCase().trim()];
   const isNew=lesson&&!S.seenVocab[d.prompt.toLowerCase().trim()];
   if(isNew&&S.showingLesson!==d.prompt){S.showingLesson=d.prompt;rLesson(a,d,lesson,pct);return;}
   if(isNew&&S.showingLesson===d.prompt){rLesson(a,d,lesson,pct);return;}
+  const isConstruct=d.type==='construct';
+  const placeholder=d.type==='flashcard'?'Type the meaning…':isConstruct?'Write a sentence using this word or pattern…':'Type your Bangla/Banglish answer…';
   const inp=!S.feedbackVisible
-    ?`<textarea class="ainp" id="ainp" placeholder="${d.type==='flashcard'?'Type the meaning…':'Type your Bangla/Banglish answer…'}" rows="3"></textarea><button class="cbtn" id="cbtn" onclick="subAns()">Check answer</button>`
+    ?`<textarea class="ainp" id="ainp" placeholder="${placeholder}" rows="3"></textarea><button class="cbtn" id="cbtn" onclick="subAns()">Check answer</button>`
     :`<textarea class="ainp" disabled rows="3">${(S.feedbackData?.userAnswer||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea>`;
+  // For construct drills, show example but not as "the correct answer" since many are valid
+  const showCorrectAns=!S.feedbackData?.correct&&!isConstruct;
+  const showExample=!S.feedbackData?.correct&&isConstruct&&S.feedbackData?.correctAnswer;
   a.innerHTML=`
     <div class="header"><button class="back" onclick="goHome()">✕ End</button><span style="font-size:13px;color:#666">${S.drillIndex+1} / ${S.drills.length}</span></div>
     <div class="pbar-wrap"><div class="pbar" style="width:${pct}%"></div></div>
     <div class="dc">
       <div class="dmeta">${srcTag}${isMix?`<span class="tag tp">${tl}</span>`:''}${isNew?'<span class="tag new">🌱 New</span>':''}</div>
       <div class="dprompt">${d.prompt}</div>
-      ${d.hint?`<div class="dhint">Hint: ${d.hint}</div>`:''}
+      ${isConstruct?`<div class="dhint">Write any valid sentence using this word or pattern in Banglish</div>`:''}
+      ${d.hint&&!isConstruct?`<div class="dhint">Hint: ${d.hint}</div>`:''}
       ${inp}
     </div>
     ${S.feedbackVisible?`
       <div class="fb-box ${S.feedbackData?.correct?'ok':'no'}">
         <div class="fb-lbl ${S.feedbackData?.correct?'ok':'no'}">${S.feedbackData?.correct?'✓ Correct':'✗ Not quite'}</div>
         <div class="fb-txt">${S.feedbackData?.feedback||''}</div>
-        ${!S.feedbackData?.correct?`<div class="fb-ans">${S.feedbackData?.correctAnswer||d.answer}</div>`:''}
+        ${showCorrectAns?`<div class="fb-ans">${S.feedbackData?.correctAnswer||d.answer}</div>`:''}
+        ${showExample?`<div class="fb-ans" style="border-top:0.5px solid #333;margin-top:8px;padding-top:8px;font-size:12px;color:#666">Example: ${S.feedbackData.correctAnswer}</div>`:''}
       </div>
       <button class="nbtn" onclick="${isLast?'goHome()':'nextD()'}">${isLast?'Done ✓':'Next →'}</button>
     `:`<div class="score">✓ ${S.session.correct} &nbsp; ✗ ${S.session.wrong}</div>`}`;
@@ -789,8 +825,9 @@ function rSync(a){
     <div class="header"><span class="header-title">Doc sync</span></div>
     <div class="sec">
       <div class="sec-label">Paste your Google Doc content</div>
-      <div class="card" style="margin-bottom:12px;font-size:13px;color:#aaa;line-height:1.6">
+      <div class="card" style="margin-bottom:12px;font-size:13px;color:#aaa;line-height:1.8">
         Open your Google Doc → Edit → Select all → Copy → Paste below.<br><br>
+        Sync runs 3 steps: parse → AI extraction → AI validation and repair. Construction exercises ("Use ache", "Make a sentence with X") are detected automatically.<br><br>
         ${S.savedDrills.length?`<span style="color:#2a9">✓ ${S.savedDrills.length} drills synced.</span> Re-syncing replaces them.`:'No doc synced yet.'}
       </div>
       <textarea class="ta" id="di" placeholder="Paste lesson content here…"></textarea>
@@ -802,25 +839,81 @@ function rSync(a){
 async function syncDoc(){
   const text=(document.getElementById('di')?.value||'').trim();if(!text)return;
   const btn=document.getElementById('syncbtn'),st=document.getElementById('sst');
-  btn.disabled=true;st.textContent='Parsing…';
-  const basic=parseDoc(text);st.textContent='Running AI extraction…';
+  btn.disabled=true;
+
+  // Step 1 — regex parse
+  st.textContent='Step 1 of 3: Parsing your doc…';
+  const basic=parseDoc(text);
+
+  // Step 2 — AI extraction of additional drills + detect construct drills
+  st.textContent='Step 2 of 3: AI extraction…';
+  let aiDrills=[];
   try{
     const t=await callAI(
       `You are a Bangla lesson content parser. Return ONLY a valid JSON array, no markdown, no explanation.
 STRICT RULES:
-- Only extract clean vocabulary pairs and example sentences — ignore all instruction text, headers, exercise instructions, numbered drills, fill-in-the-blank tasks, and quiz questions
-- Never create a drill where the prompt or answer is a list of words separated by slashes or commas (e.g. "ache / nai / valo lage na" is NOT a valid answer)
-- Never create a drill from lines that start with "Use", "Make", "Write", "Translate", "Fill", "Practice", "Drill", "Choose", "Correct" etc
-- For flashcards: prompt must be a single English word or short phrase, answer must be the Banglish equivalent (or vice versa)
-- For translate: prompt must be a complete English sentence, answer must be a complete Banglish sentence
+- Extract vocabulary pairs, example sentences, and construction exercises
+- For lines like "Use ache", "Make a sentence with X", "Practice X" — create a drill of type "construct" where prompt is the word or pattern to use (e.g. "ache (to have)") and answer is one example sentence
+- For vocabulary: type "flashcard", prompt=English, answer=Banglish (single word or short phrase only — never a list)
+- For sentences: type "translate", prompt=English sentence, answer=Banglish sentence
+- For verb tasks: type "conjugate", prompt=the task, answer=all three forms (ami/tumi/o)
+- NEVER create a drill where prompt or answer is a slash-separated or comma-separated list
 - Tumi forms only. Past tense: korchilam/korechilam (NEVER korsilam)`,
-      `Extract up to 50 clean practice drills from this lesson content. Each drill must have: type (flashcard|translate|conjugate), prompt, answer, category (vocab|translation|conjugation|chaining|connector), hint (optional).\n\nLesson content:\n${text.slice(0,3500)}`);
-    const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
-    S.savedDrills=dedupe([...basic,...arr.map(d=>({...d,source:'doc'}))]).slice(0,120);
-  }catch(e){S.savedDrills=basic;}
+      `Extract up to 60 practice drills from this lesson. Fields: type (flashcard|translate|conjugate|construct), prompt, answer, category (vocab|translation|conjugation|chaining|connector|construction), hint (optional).\n\nLesson:\n${text.slice(0,4000)}`);
+    aiDrills=JSON.parse(t.replace(/```json|```/g,'').trim()).map(d=>({...d,source:'doc'}));
+  }catch(e){console.warn('AI extraction failed:',e.message);}
+
+  // Merge and dedupe before validation
+  let merged=dedupe([...basic,...aiDrills]).slice(0,140);
+
+  // Step 3 — AI validation and repair pass (batch in groups of 15)
+  st.textContent='Step 3 of 3: Validating and repairing drills…';
+  const validated=[];
+  const batchSize=15;
+  for(let i=0;i<merged.length;i+=batchSize){
+    const batch=merged.slice(i,i+batchSize);
+    const batchNum=Math.floor(i/batchSize)+1;
+    const totalBatches=Math.ceil(merged.length/batchSize);
+    st.textContent=`Step 3 of 3: Validating batch ${batchNum} of ${totalBatches}…`;
+    try{
+      const t=await callAI(
+        `You are a Dhaka Bengali language expert validating and repairing practice drills. Return ONLY a valid JSON array, no markdown.`,
+        `Review each drill below and for each one:
+- If it is a valid, useful practice drill: keep it as-is, set "action":"keep"
+- If it is malformed but fixable (wrong type, garbled answer, instruction text leaked in): fix it and set "action":"fix"  
+- If it is completely invalid (e.g. prompt is an instruction like "Use ache, nai, valo lage", answer is a list of options, or it makes no sense as a drill): discard it and set "action":"discard"
+
+For construct drills: prompt should be the word/pattern to use (e.g. "ache"), answer should be one example sentence.
+For flashcard drills: prompt=English word/phrase, answer=Banglish word/phrase (not a list, not a sentence instruction).
+Tumi forms only. Past tense: korchilam/korechilam (NEVER korsilam).
+
+Return a JSON array where each item is the drill object (with all original fields) plus an "action" field ("keep"|"fix"|"discard"). For fixed drills, update the prompt/answer/type fields to be correct.
+
+Drills to review:
+${JSON.stringify(batch,null,2)}`
+      );
+      const results=JSON.parse(t.replace(/```json|```/g,'').trim());
+      results.forEach(d=>{
+        if(d.action!=='discard'){
+          const {action,...drill}=d;
+          validated.push(drill);
+        }
+      });
+    }catch(e){
+      // If validation batch fails, keep the drills as-is rather than losing them
+      console.warn('Validation batch failed, keeping as-is:',e.message);
+      validated.push(...batch);
+    }
+  }
+
+  S.savedDrills=dedupe(validated).slice(0,150);
   st.textContent='Saving to your account…';
   await dbSaveDrills(S.savedDrills,'doc');
-  st.textContent=`✓ ${S.savedDrills.length} drills synced`;btn.disabled=false;
+
+  const constructCount=S.savedDrills.filter(d=>d.type==='construct').length;
+  const fixedCount=S.savedDrills.length;
+  st.textContent=`✓ ${fixedCount} drills synced (${constructCount} construction exercises)`;
+  btn.disabled=false;
 }
 
 // ── ACCOUNT ─────────────────────────────────────────────────
