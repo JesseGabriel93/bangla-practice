@@ -732,13 +732,56 @@ async function genTopic(){
 // ── SYNC ────────────────────────────────────────────────────
 function parseDoc(text){
   const out=[];
+  // Lines to skip — instructions, headers, list items, numbered items, blanks
+  const skipPatterns=[
+    /^#+\s/,           // markdown headers
+    /^\d+[\.\)]\s/,   // numbered lists
+    /^[-*•]\s/,       // bullet points
+    /^(use|drill|practice|make|write|translate|fill|choose|correct|answer|complete|turn|change)\b/i, // instruction words
+    /\/.*\//,         // multiple slashes (list of options like "ache / nai / valo lage")
+    /,.*,/,           // multiple commas (also a list)
+    /\bor\b.*\bor\b/i,// "x or y or z"
+  ];
+
   text.split('\n').map(l=>l.trim()).filter(Boolean).forEach(line=>{
-    const v=line.match(/^([a-zA-Z\s]{2,35})\s*[=\/]\s*(.{2,55})$/);
-    if(v){out.push({type:'flashcard',prompt:v[2].trim(),answer:v[1].trim(),category:'vocab',source:'doc'});out.push({type:'flashcard',prompt:v[1].trim(),answer:v[2].trim(),category:'vocab',source:'doc'});}
-    const s=line.match(/^(.{10,60})\s*=\s*(.{5,80})$/);
-    if(s&&s[1].includes(' ')&&s[2].includes(' '))out.push({type:'translate',prompt:s[2].trim(),answer:s[1].trim(),category:'translation',source:'doc'});
+    if(skipPatterns.some(p=>p.test(line)))return;
+
+    // Only match clean "X = Y" pairs where X is a simple word/phrase (no slashes, no commas)
+    // and Y is a clean translation (not another list)
+    const v=line.match(/^([a-zA-Z][a-zA-Z\s]{1,30})\s*=\s*([^\/,]{3,55})$/);
+    if(v){
+      const left=v[1].trim();
+      const right=v[2].trim();
+      // Skip if either side looks like an instruction or has multiple words that suggest a list
+      if(left.split(' ').length<=6&&right.split(' ').length<=10){
+        out.push({type:'flashcard',prompt:right,answer:left,category:'vocab',source:'doc'});
+        out.push({type:'flashcard',prompt:left,answer:right,category:'vocab',source:'doc'});
+      }
+    }
+
+    // Sentence pairs — "Banglish sentence = English sentence"
+    // Must have spaces on both sides (real sentences) and no slash
+    const s=line.match(/^([^=\/]{10,60})\s*=\s*([^=\/]{5,80})$/);
+    if(s){
+      const left=s[1].trim();
+      const right=s[2].trim();
+      const leftWords=left.split(' ').length;
+      const rightWords=right.split(' ').length;
+      // Both sides must look like sentences (2+ words), not single words or lists
+      if(leftWords>=2&&rightWords>=2&&leftWords<=12&&rightWords<=15){
+        // Determine which side is English vs Banglish by checking for common English words
+        const engWords=/\b(i|you|he|she|we|they|the|is|am|are|was|were|have|has|do|does|did|will|can|my|your|his|her|our)\b/i;
+        if(engWords.test(right)&&!engWords.test(left)){
+          // left=Banglish, right=English
+          out.push({type:'translate',prompt:right,answer:left,category:'translation',source:'doc'});
+        } else if(engWords.test(left)&&!engWords.test(right)){
+          // left=English, right=Banglish
+          out.push({type:'translate',prompt:left,answer:right,category:'translation',source:'doc'});
+        }
+      }
+    }
   });
-  return dedupe(out).slice(0,80);
+  return dedupe(out).slice(0,120);
 }
 
 function rSync(a){
@@ -762,7 +805,16 @@ async function syncDoc(){
   btn.disabled=true;st.textContent='Parsing…';
   const basic=parseDoc(text);st.textContent='Running AI extraction…';
   try{
-    const t=await callAI('Bangla lesson parser. Return ONLY JSON array no markdown.',`Extract up to 50 drills. Tumi forms -chil- past korchilam not korsilam. Types:flashcard/translate/conjugate. Fields:type,prompt,answer,category,hint. NO duplicates.\nLesson:\n${text.slice(0,3500)}`);
+    const t=await callAI(
+      `You are a Bangla lesson content parser. Return ONLY a valid JSON array, no markdown, no explanation.
+STRICT RULES:
+- Only extract clean vocabulary pairs and example sentences — ignore all instruction text, headers, exercise instructions, numbered drills, fill-in-the-blank tasks, and quiz questions
+- Never create a drill where the prompt or answer is a list of words separated by slashes or commas (e.g. "ache / nai / valo lage na" is NOT a valid answer)
+- Never create a drill from lines that start with "Use", "Make", "Write", "Translate", "Fill", "Practice", "Drill", "Choose", "Correct" etc
+- For flashcards: prompt must be a single English word or short phrase, answer must be the Banglish equivalent (or vice versa)
+- For translate: prompt must be a complete English sentence, answer must be a complete Banglish sentence
+- Tumi forms only. Past tense: korchilam/korechilam (NEVER korsilam)`,
+      `Extract up to 50 clean practice drills from this lesson content. Each drill must have: type (flashcard|translate|conjugate), prompt, answer, category (vocab|translation|conjugation|chaining|connector), hint (optional).\n\nLesson content:\n${text.slice(0,3500)}`);
     const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
     S.savedDrills=dedupe([...basic,...arr.map(d=>({...d,source:'doc'}))]).slice(0,120);
   }catch(e){S.savedDrills=basic;}
