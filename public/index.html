@@ -821,18 +821,19 @@ function parseDoc(text){
 }
 
 function rSync(a){
+  const count=S.savedDrills.length;
   a.innerHTML=`
     <div class="header"><span class="header-title">Doc sync</span></div>
     <div class="sec">
       <div class="sec-label">Paste your Google Doc content</div>
       <div class="card" style="margin-bottom:12px;font-size:13px;color:#aaa;line-height:1.8">
         Open your Google Doc → Edit → Select all → Copy → Paste below.<br><br>
-        Sync runs 3 steps: parse → AI extraction → AI validation and repair. Construction exercises ("Use ache", "Make a sentence with X") are detected automatically.<br><br>
-        ${S.savedDrills.length?`<span style="color:#2a9">✓ ${S.savedDrills.length} drills synced.</span> Re-syncing replaces them.`:'No doc synced yet.'}
+        The app extracts clean vocab pairs and sentences, then uses AI to classify them. Construction exercises like "Use ache" are detected automatically.<br><br>
+        <span id="sync-count-display">${count?`<span style="color:#2a9">✓ ${count} drills currently saved.</span> Re-syncing replaces them.`:'No doc synced yet.'}</span>
       </div>
       <textarea class="ta" id="di" placeholder="Paste lesson content here…"></textarea>
       <button class="sbtn" id="syncbtn" onclick="syncDoc()">Parse and sync</button>
-      <div id="sst" class="sstatus"></div>
+      <div id="sst" class="sstatus" style="font-size:13px;color:#2a9;text-align:center;padding:8px;min-height:28px"></div>
     </div>`;
 }
 
@@ -925,6 +926,7 @@ async function syncDoc(){
   const text=(document.getElementById('di')?.value||'').trim();if(!text)return;
   const btn=document.getElementById('syncbtn'),st=document.getElementById('sst');
   btn.disabled=true;
+  btn.textContent='Syncing…';
 
   // Stage 1 — tight regex extraction (no AI, no false positives)
   st.textContent='Stage 1: Extracting clean pairs…';
@@ -978,9 +980,14 @@ ${JSON.stringify(batch)}`
 
   const byType=S.savedDrills.reduce((a,d)=>{a[d.type]=(a[d.type]||0)+1;return a;},{});
   const summary=Object.entries(byType).map(([t,n])=>`${n} ${t}`).join(', ');
-  st.textContent=`✓ ${S.savedDrills.length} drills synced — ${summary}`;
+  const finalMsg=`✓ ${S.savedDrills.length} drills synced — ${summary}`;
+  st.textContent=finalMsg;
+  st.style.color='#2a9';
+  // Update the count display in the card without re-rendering
+  const countDisplay=document.getElementById('sync-count-display');
+  if(countDisplay)countDisplay.innerHTML=`<span style="color:#2a9">${finalMsg}</span>`;
   btn.disabled=false;
-}
+  btn.textContent='Parse and sync';
 
 // ── ACCOUNT ─────────────────────────────────────────────────
 function rAccount(a){
