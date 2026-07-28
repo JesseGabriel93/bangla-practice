@@ -32,59 +32,31 @@ export default async function handler(req, res) {
       generationConfig: { maxOutputTokens: max_tokens || 1500, temperature: 0.7 },
     });
 
-    // Try models in order until one works
-    const models = [
-      'gemini-2.5-flash',
-      'gemini-flash-latest',
-      'gemini-2.5-flash-lite',
-      'gemini-3.5-flash',
-    ];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body,
+    });
 
-    let lastError = '';
-    for (const model of models) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body,
-      });
+    console.log('Gemini status:', response.status);
 
-      console.log(`Model ${model} status:`, response.status);
-
-      if (response.status === 404) {
-        const errText = await response.text();
-        console.log(`Model ${model} 404:`, errText.slice(0, 200));
-        lastError = `${model}: 404`;
-        continue; // try next model
-      }
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error(`Model ${model} error ${response.status}:`, errText.slice(0, 200));
-        lastError = `${model}: ${response.status} ${errText.slice(0,100)}`;
-        continue;
-      }
-
-      const data = await response.json();
-      if (data.error) {
-        lastError = `${model}: ${data.error.message}`;
-        continue;
-      }
-
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (!text) {
-        lastError = `${model}: empty response`;
-        continue;
-      }
-
-      // Success
-      console.log(`Success with model: ${model}`);
-      return res.status(200).json({ content: [{ type: 'text', text }] });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('Gemini error:', response.status, errText.slice(0, 300));
+      return res.status(response.status).json({ error: `Gemini returned ${response.status}`, detail: errText.slice(0, 300) });
     }
 
-    // All models failed
-    console.error('All models failed. Last error:', lastError);
-    return res.status(404).json({ error: 'All Gemini models failed', detail: lastError });
+    const data = await response.json();
+    if (data.error) {
+      console.error('Gemini API error:', data.error);
+      return res.status(400).json({ error: data.error.message });
+    }
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!text) return res.status(500).json({ error: 'Empty response from Gemini' });
+
+    return res.status(200).json({ content: [{ type: 'text', text }] });
 
   } catch (err) {
     console.error('Proxy error:', err);
