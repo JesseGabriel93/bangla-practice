@@ -17,18 +17,27 @@ export default async function handler(req, res) {
     const userMsg = messages?.[0]?.content || '';
     const fullPrompt = system ? `${system}\n\n${userMsg}` : userMsg;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: fullPrompt }] }],
         generationConfig: {
-          maxOutputTokens: max_tokens || 1000,
+          maxOutputTokens: max_tokens || 1500,
           temperature: 0.7,
         },
       }),
     });
+
+    // Log status for debugging
+    console.log('Gemini response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Gemini HTTP error:', response.status, errorText);
+      return res.status(response.status).json({ error: `Gemini returned ${response.status}`, detail: errorText });
+    }
 
     const data = await response.json();
 
