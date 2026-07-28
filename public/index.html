@@ -841,78 +841,53 @@ async function syncDoc(){
   const btn=document.getElementById('syncbtn'),st=document.getElementById('sst');
   btn.disabled=true;
 
-  // Step 1 — regex parse
-  st.textContent='Step 1 of 3: Parsing your doc…';
-  const basic=parseDoc(text);
+  // Split doc into chunks of ~2500 chars to stay well within Gemini's reliable range
+  const chunkSize=2500;
+  const chunks=[];
+  for(let i=0;i<text.length;i+=chunkSize)chunks.push(text.slice(i,i+chunkSize));
 
-  // Step 2 — AI extraction of additional drills + detect construct drills
-  st.textContent='Step 2 of 3: AI extraction…';
-  let aiDrills=[];
-  try{
-    const t=await callAI(
-      `You are a Bangla lesson content parser. Return ONLY a valid JSON array, no markdown, no explanation.
-STRICT RULES:
-- Extract vocabulary pairs, example sentences, and construction exercises
-- For lines like "Use ache", "Make a sentence with X", "Practice X" — create a drill of type "construct" where prompt is the word or pattern to use (e.g. "ache (to have)") and answer is one example sentence
-- For vocabulary: type "flashcard", prompt=English, answer=Banglish (single word or short phrase only — never a list)
-- For sentences: type "translate", prompt=English sentence, answer=Banglish sentence
-- For verb tasks: type "conjugate", prompt=the task, answer=all three forms (ami/tumi/o)
-- NEVER create a drill where prompt or answer is a slash-separated or comma-separated list
-- Tumi forms only. Past tense: korchilam/korechilam (NEVER korsilam)`,
-      `Extract up to 60 practice drills from this lesson. Fields: type (flashcard|translate|conjugate|construct), prompt, answer, category (vocab|translation|conjugation|chaining|connector|construction), hint (optional).\n\nLesson:\n${text.slice(0,4000)}`);
-    aiDrills=JSON.parse(t.replace(/```json|```/g,'').trim()).map(d=>({...d,source:'doc'}));
-  }catch(e){console.warn('AI extraction failed:',e.message);}
+  const sys=`You are a Dhaka Bengali language tutor extracting and validating practice drills from a student's lesson document.
+Return ONLY a valid JSON array. No markdown fences, no explanation, no extra text whatsoever.
 
-  // Merge and dedupe before validation
-  let merged=dedupe([...basic,...aiDrills]).slice(0,140);
+DRILL TYPES:
+- "flashcard": a single vocabulary word or short phrase. prompt=English meaning, answer=Banglish word/phrase
+- "translate": a complete sentence pair. prompt=English sentence, answer=Banglish sentence  
+- "conjugate": a verb conjugation task. prompt=the task description, answer=ami/tumi/o forms separated by " / "
+- "construct": an open-ended construction exercise (e.g. "Use ache in a sentence"). prompt=the word or pattern to practice, answer=one example sentence
 
-  // Step 3 — AI validation and repair pass (batch in groups of 15)
-  st.textContent='Step 3 of 3: Validating and repairing drills…';
-  const validated=[];
-  const batchSize=15;
-  for(let i=0;i<merged.length;i+=batchSize){
-    const batch=merged.slice(i,i+batchSize);
-    const batchNum=Math.floor(i/batchSize)+1;
-    const totalBatches=Math.ceil(merged.length/batchSize);
-    st.textContent=`Step 3 of 3: Validating batch ${batchNum} of ${totalBatches}…`;
+STRICT RULES — discard anything that breaks these:
+1. Flashcard prompts and answers must be single words or short phrases — NEVER a list like "ache / nai / valo lage"
+2. Never create a drill from instruction text ("Use X", "Make a sentence", "Fill in the blank", "Translate this", "Practice X, Y, Z")
+3. Never use table headers, column names, pronouns lists, or grammar rule lines as drills
+4. Never use lines like "O = He/She → Tar / Or = His/Her" — these are grammar notes, not drills
+5. For translate: both prompt and answer must be complete sentences (3+ words each)
+6. Tumi forms only (never apni). Past tense: korchilam/korechilam (NEVER korsilam/korsila)
+7. If a line is malformed but the intent is clear, fix it rather than discarding it
+
+Each drill object must have: type, prompt, answer, category (vocab|translation|conjugation|chaining|connector|construction), source:"doc"
+Optional: hint (a short grammar tip)`;
+
+  const allDrills=[];
+  for(let i=0;i<chunks.length;i++){
+    st.textContent=`Processing chunk ${i+1} of ${chunks.length}…`;
     try{
-      const t=await callAI(
-        `You are a Dhaka Bengali language expert validating and repairing practice drills. Return ONLY a valid JSON array, no markdown.`,
-        `Review each drill below and for each one:
-- If it is a valid, useful practice drill: keep it as-is, set "action":"keep"
-- If it is malformed but fixable (wrong type, garbled answer, instruction text leaked in): fix it and set "action":"fix"  
-- If it is completely invalid (e.g. prompt is an instruction like "Use ache, nai, valo lage", answer is a list of options, or it makes no sense as a drill): discard it and set "action":"discard"
-
-For construct drills: prompt should be the word/pattern to use (e.g. "ache"), answer should be one example sentence.
-For flashcard drills: prompt=English word/phrase, answer=Banglish word/phrase (not a list, not a sentence instruction).
-Tumi forms only. Past tense: korchilam/korechilam (NEVER korsilam).
-
-Return a JSON array where each item is the drill object (with all original fields) plus an "action" field ("keep"|"fix"|"discard"). For fixed drills, update the prompt/answer/type fields to be correct.
-
-Drills to review:
-${JSON.stringify(batch,null,2)}`
-      );
-      const results=JSON.parse(t.replace(/```json|```/g,'').trim());
-      results.forEach(d=>{
-        if(d.action!=='discard'){
-          const {action,...drill}=d;
-          validated.push(drill);
-        }
-      });
+      const t=await callAI(sys,`Extract valid practice drills from this lesson content chunk. Apply all rules strictly — it is better to extract 5 perfect drills than 20 mixed with garbage.\n\n${chunks[i]}`);
+      const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
+      if(Array.isArray(arr))allDrills.push(...arr);
     }catch(e){
-      // If validation batch fails, keep the drills as-is rather than losing them
-      console.warn('Validation batch failed, keeping as-is:',e.message);
-      validated.push(...batch);
+      console.warn(`Chunk ${i+1} failed:`,e.message);
+      // Don't fall back to regex output for failed chunks — just skip
     }
   }
 
-  S.savedDrills=dedupe(validated).slice(0,150);
+  // Final dedup and save
+  S.savedDrills=dedupe(allDrills).slice(0,150);
   st.textContent='Saving to your account…';
   await dbSaveDrills(S.savedDrills,'doc');
 
-  const constructCount=S.savedDrills.filter(d=>d.type==='construct').length;
-  const fixedCount=S.savedDrills.length;
-  st.textContent=`✓ ${fixedCount} drills synced (${constructCount} construction exercises)`;
+  const byType=S.savedDrills.reduce((a,d)=>{a[d.type]=(a[d.type]||0)+1;return a;},{});
+  const summary=Object.entries(byType).map(([t,n])=>`${n} ${t}`).join(', ');
+  st.textContent=`✓ ${S.savedDrills.length} drills synced — ${summary}`;
   btn.disabled=false;
 }
 
