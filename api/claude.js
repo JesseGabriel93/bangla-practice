@@ -1,23 +1,34 @@
 export default async function handler(req, res) {
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    return res.status(200).end();
-  }
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'API key not configured' });
+
+  // Debug endpoint — GET /api/claude returns available models
+  if (req.method === 'GET') {
+    try {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+      );
+      const d = await r.json();
+      const models = (d.models || []).map(m => m.name);
+      return res.status(200).json({ models, keyPrefix: apiKey.slice(0,8)+'...' });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
     const { system, messages, max_tokens } = req.body;
     const userMsg = messages?.[0]?.content || '';
     const fullPrompt = system ? `${system}\n\n${userMsg}` : userMsg;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+    // Try gemini-flash-latest as the stable alias
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
