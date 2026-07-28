@@ -836,52 +836,143 @@ function rSync(a){
     </div>`;
 }
 
+// Tight regex pre-parser — only extracts unambiguously clean pairs
+function extractRawPairs(text){
+  const pairs=[];
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+
+  // Patterns that mean this line is definitely NOT a drill
+  const garbage=[
+    /→/,                          // grammar notes like "Ami = I → Amar = My"
+    /[=]\s*\w+.*[=]/,             // double equals like "Ami = I = subject"
+    /\/.*\//,                     // multiple slashes (option lists)
+    /,.*,.*,/,                    // three or more commas (long lists)
+    /^\d+[\.\)]/,                 // numbered list items
+    /^[-*•#]/,                    // bullet/header
+    /\b(subject|doer|owner|possession|pronoun|column|table|key rule|examples?:)\b/i,
+    /^(use|make|write|translate|fill|practice|drill|choose|correct|turn|change|rewrite|answer|complete|section|part|homework|classwork|quiz|warm.?up)\b/i,
+    /\|\s*\|/,                    // table separators
+  ];
+
+  for(const line of lines){
+    if(garbage.some(p=>p.test(line)))continue;
+
+    // Only accept clean "X = Y" where neither side contains →, /, or multiple =
+    const m=line.match(/^([^=→\/]{2,60})\s*=\s*([^=→\/]{2,80})$/);
+    if(!m)continue;
+
+    const left=m[1].trim();
+    const right=m[2].trim();
+
+    // Skip if either side is very short (single char) or looks like a grammar label
+    if(left.length<2||right.length<2)continue;
+    if(/^(I|a|A)$/.test(left)||/^(I|a|A)$/.test(right))continue;
+
+    // Determine direction — which side is English vs Banglish
+    const engWords=/\b(i|you|he|she|we|they|the|is|am|are|was|were|have|has|do|does|did|will|can|my|your|his|her|our|it|not|no|good|bad|big|small|today|now|later|very|little|always|sometimes|never|everyday|yesterday|tomorrow)\b/i;
+    const leftIsEng=engWords.test(left);
+    const rightIsEng=engWords.test(right);
+
+    let english='',banglish='';
+    if(leftIsEng&&!rightIsEng){english=left;banglish=right;}
+    else if(rightIsEng&&!leftIsEng){english=right;banglish=left;}
+    else if(leftIsEng&&rightIsEng){
+      // Both look English — likely a sentence pair, use left as prompt
+      english=left;banglish=right;
+    } else {
+      // Neither detected as English — skip, too ambiguous
+      continue;
+    }
+
+    // Determine if it's a sentence (3+ words on both sides) or vocab (short phrase)
+    const engWords2=english.split(/\s+/).length;
+    const bnWords=banglish.split(/\s+/).length;
+    const isSentence=engWords2>=3&&bnWords>=2;
+
+    pairs.push({
+      type: isSentence?'translate':'flashcard',
+      prompt: english,
+      answer: banglish,
+      category: isSentence?'translation':'vocab',
+      source: 'doc',
+    });
+  }
+  return pairs;
+}
+
+// Detect construct exercises — lines like "Use X", "Make a sentence with X"
+function extractConstructDrills(text){
+  const constructs=[];
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const constructPattern=/^(use|make a sentence (with|using)|practice using|try using)\s+([a-zA-Z\s]{2,30})/i;
+  for(const line of lines){
+    const m=line.match(constructPattern);
+    if(m){
+      const word=m[3].trim().replace(/[.,!?]$/,'');
+      constructs.push({
+        type:'construct',
+        prompt:`Use "${word}" in a Bangla sentence`,
+        answer:`Amar ${word} ache. (example — any valid sentence is accepted)`,
+        category:'construction',
+        source:'doc',
+      });
+    }
+  }
+  return constructs;
+}
+
 async function syncDoc(){
   const text=(document.getElementById('di')?.value||'').trim();if(!text)return;
   const btn=document.getElementById('syncbtn'),st=document.getElementById('sst');
   btn.disabled=true;
 
-  // Split doc into chunks of ~2500 chars to stay well within Gemini's reliable range
-  const chunkSize=2500;
-  const chunks=[];
-  for(let i=0;i<text.length;i+=chunkSize)chunks.push(text.slice(i,i+chunkSize));
+  // Stage 1 — tight regex extraction (no AI, no false positives)
+  st.textContent='Stage 1: Extracting clean pairs…';
+  const rawPairs=extractRawPairs(text);
+  const constructDrills=extractConstructDrills(text);
+  st.textContent=`Stage 1 done: ${rawPairs.length} pairs found. Running AI classification…`;
 
-  const sys=`You are a Dhaka Bengali language tutor extracting and validating practice drills from a student's lesson document.
-Return ONLY a valid JSON array. No markdown fences, no explanation, no extra text whatsoever.
+  // Stage 2 — AI classifies and enriches only the clean pairs
+  // Send in batches of 20 pairs at a time
+  const enriched=[];
+  const batchSize=20;
+  const batches=[];
+  for(let i=0;i<rawPairs.length;i+=batchSize)batches.push(rawPairs.slice(i,i+batchSize));
 
-DRILL TYPES:
-- "flashcard": a single vocabulary word or short phrase. prompt=English meaning, answer=Banglish word/phrase
-- "translate": a complete sentence pair. prompt=English sentence, answer=Banglish sentence  
-- "conjugate": a verb conjugation task. prompt=the task description, answer=ami/tumi/o forms separated by " / "
-- "construct": an open-ended construction exercise (e.g. "Use ache in a sentence"). prompt=the word or pattern to practice, answer=one example sentence
-
-STRICT RULES — discard anything that breaks these:
-1. Flashcard prompts and answers must be single words or short phrases — NEVER a list like "ache / nai / valo lage"
-2. Never create a drill from instruction text ("Use X", "Make a sentence", "Fill in the blank", "Translate this", "Practice X, Y, Z")
-3. Never use table headers, column names, pronouns lists, or grammar rule lines as drills
-4. Never use lines like "O = He/She → Tar / Or = His/Her" — these are grammar notes, not drills
-5. For translate: both prompt and answer must be complete sentences (3+ words each)
-6. Tumi forms only (never apni). Past tense: korchilam/korechilam (NEVER korsilam/korsila)
-7. If a line is malformed but the intent is clear, fix it rather than discarding it
-
-Each drill object must have: type, prompt, answer, category (vocab|translation|conjugation|chaining|connector|construction), source:"doc"
-Optional: hint (a short grammar tip)`;
-
-  const allDrills=[];
-  for(let i=0;i<chunks.length;i++){
-    st.textContent=`Processing chunk ${i+1} of ${chunks.length}…`;
+  for(let i=0;i<batches.length;i++){
+    st.textContent=`Stage 2: Classifying batch ${i+1} of ${batches.length}…`;
+    const batch=batches[i];
     try{
-      const t=await callAI(sys,`Extract valid practice drills from this lesson content chunk. Apply all rules strictly — it is better to extract 5 perfect drills than 20 mixed with garbage.\n\n${chunks[i]}`);
+      const t=await callAI(
+        `You are a Dhaka Bengali tutor. Return ONLY a valid JSON array. No markdown, no explanation.`,
+        `For each pair below, determine the correct drill type and add a category and optional hint.
+Rules:
+- type "flashcard": single word or short phrase (1-2 words each side)
+- type "translate": complete sentence (3+ words, English prompt, Banglish answer)
+- type "conjugate": if the pair is about verb forms
+- Keep prompt=English, answer=Banglish
+- Add category: vocab | translation | conjugation | chaining | connector
+- Add hint: short grammar tip if useful, otherwise omit
+- DO NOT change prompt or answer text — only add/correct type, category, hint
+- Return the same number of objects as input
+
+Input pairs:
+${JSON.stringify(batch)}`
+      );
       const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
-      if(Array.isArray(arr))allDrills.push(...arr);
+      if(Array.isArray(arr)&&arr.length>0){
+        enriched.push(...arr.map(d=>({...d,source:'doc'})));
+      } else {
+        enriched.push(...batch); // keep originals if AI fails
+      }
     }catch(e){
-      console.warn(`Chunk ${i+1} failed:`,e.message);
-      // Don't fall back to regex output for failed chunks — just skip
+      enriched.push(...batch); // keep originals if AI fails
     }
   }
 
-  // Final dedup and save
-  S.savedDrills=dedupe(allDrills).slice(0,150);
+  // Combine, dedupe, save
+  const all=dedupe([...enriched,...constructDrills]).slice(0,150);
+  S.savedDrills=all;
   st.textContent='Saving to your account…';
   await dbSaveDrills(S.savedDrills,'doc');
 
