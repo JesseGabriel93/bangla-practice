@@ -319,69 +319,88 @@ Return a JSON object with exactly these fields:
   }
 }
 
+// ── LOCAL ANSWER CHECK ───────────────────────────────────────
+function normaliseAns(s){
+  return s.toLowerCase()
+    .replace(/^(to|a|an|the)\s+/i,'')
+    .replace(/[^\w\s]/g,'')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function editDist(a,b){
+  const m=a.length,n=b.length;
+  const dp=Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i||j));
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
+    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  return dp[m][n];
+}
+function isVocabDrill(drill){
+  const pw=(drill.prompt||'').split(/\s+/).length;
+  const aw=(drill.answer||'').split(/\s+/).length;
+  return drill.type==='flashcard'&&pw<=5&&aw<=5;
+}
+function localCheckAnswer(drill,userAns){
+  const expected=normaliseAns(drill.answer);
+  const given=normaliseAns(userAns);
+  if(!given)return null;
+  // Exact match
+  if(given===expected)return{correct:true,feedback:'Correct!',correctAnswer:drill.answer};
+  // Typo tolerance
+  const maxDist=expected.length<=5?1:2;
+  if(editDist(given,expected)<=maxDist)
+    return{correct:true,feedback:'Correct! (minor spelling difference)',correctAnswer:drill.answer};
+  // Multiple alternatives separated by / or ,
+  const alts=drill.answer.split(/[\/,]/).map(s=>normaliseAns(s.trim())).filter(Boolean);
+  if(alts.some(alt=>given===alt||editDist(given,alt)<=maxDist))
+    return{correct:true,feedback:'Correct!',correctAnswer:drill.answer};
+  return{correct:false,feedback:`Not quite. The answer is "${drill.answer}".`,correctAnswer:drill.answer};
+}
+
 async function checkAnswer(drill,ans){
-  // Construct drills are open-ended — no fixed answer, AI evaluates usage only
+  // Simple vocab flashcards — check locally, no API call needed
+  if(isVocabDrill(drill)){
+    const result=localCheckAnswer(drill,ans);
+    if(result)return result;
+  }
+
+  // Construct drills — open-ended, always needs AI
   if(drill.type==='construct'){
     const sys=`You are a Dhaka Bengali tutor evaluating a student's sentence construction. Return ONLY valid JSON, no markdown.`;
     const usr=`The student was asked to construct a sentence using this Bangla word or pattern: "${drill.prompt}"
 Their answer: "${ans}"
-
-Evaluate whether:
-1. They correctly used the word/pattern in a grammatically valid Dhaka Bengali sentence
-2. They used tumi forms (not apni)
-3. The sentence makes natural conversational sense
-
-Do NOT penalise them for not matching any specific expected answer — any valid sentence using the pattern correctly is correct.
-
-Return JSON:
-{
-  "correct": true or false,
-  "feedback": "2-3 sentences of specific feedback. Point out exactly what they did right or wrong. If wrong, show them a corrected version of their sentence.",
-  "correctAnswer": "one good example sentence using the pattern (for reference, not as the only right answer)"
-}`;
+Evaluate whether they correctly used the word/pattern in a grammatically valid Dhaka Bengali sentence using tumi forms (not apni).
+Do NOT penalise for not matching a specific answer — any valid sentence using the pattern is correct.
+Return JSON: {"correct":true/false,"feedback":"2-3 sentences of specific feedback, show corrected version if wrong","correctAnswer":"one good example sentence"}`;
     try{
       const t=await callAI(sys,usr);
       const result=JSON.parse(t.replace(/```json|```/g,'').trim());
       if(typeof result.correct!=='boolean')throw new Error('bad');
       return result;
     }catch(e){
-      return{correct:true,feedback:'Your sentence has been noted. Keep practicing using this pattern in different contexts.',correctAnswer:drill.answer||''};
+      return{correct:true,feedback:'Your sentence has been noted. Keep practicing this pattern.',correctAnswer:drill.answer||''};
     }
   }
 
-  // Fixed-answer drills (flashcard, translate, conjugate)
+  // Translate / conjugate / longer flashcards — use AI
   const sys=`You are a Dhaka Bengali tutor checking a student's answer. Return ONLY valid JSON with no markdown or extra text.
-Rules for marking:
-- Be lenient with romanization spelling variations (e.g. "korchilam" and "korchilaam" are both fine)
-- Tumi forms are correct, apni forms are wrong unless the drill specifically asks for apni
-- Past tense should use -chil- endings (korchilam/korechilam), NOT -sil- endings (korsilam)
-- Accept reasonable synonym answers if the meaning is clearly correct
-- For flashcards, accept either the English or Banglish if the meaning is right`;
-  const usr=`Check this student's answer for a Dhaka Bengali drill.
-
-Drill type: ${drill.type}
-Question shown to student: "${drill.prompt}"
-Expected correct answer: "${drill.answer}"
-Student's answer: "${ans}"
-
-Is the student's answer correct or close enough?
-
-Return JSON:
-{
-  "correct": true or false,
-  "feedback": "1-2 sentences of specific helpful feedback. If correct, affirm and add one useful tip. If wrong, explain what was incorrect and why.",
-  "correctAnswer": "the ideal answer the student should remember"
-}`;
+Rules:
+- Lenient with romanization spelling variations
+- Tumi forms are correct, apni forms are wrong
+- Past tense: -chil- endings (korchilam/korechilam) NOT -sil- (korsilam)
+- Accept reasonable synonyms if meaning is clearly correct`;
+  const usr=`Drill type: ${drill.type}
+Question: "${drill.prompt}"
+Expected: "${drill.answer}"
+Student: "${ans}"
+Return JSON: {"correct":true/false,"feedback":"1-2 sentences — if correct affirm and add a tip, if wrong explain why","correctAnswer":"ideal answer"}`;
   try{
     const t=await callAI(sys,usr);
     const result=JSON.parse(t.replace(/```json|```/g,'').trim());
     if(typeof result.correct!=='boolean')throw new Error('bad shape');
     return result;
   }catch(e){
-    const a=ans.toLowerCase().trim();
-    const e2=drill.answer.toLowerCase().trim();
-    const ok=a===e2||e2.includes(a)||(a.length>4&&e2.startsWith(a.slice(0,Math.floor(a.length*.7))));
-    return{correct:ok,feedback:ok?'Correct! Well done.':'Not quite — check the correct answer below.',correctAnswer:drill.answer};
+    const result=localCheckAnswer(drill,ans);
+    return result||{correct:false,feedback:'Could not check — see correct answer below.',correctAnswer:drill.answer};
   }
 }
 
@@ -392,7 +411,8 @@ function setLoad(t,s,p){document.getElementById('lo-title').textContent=t;docume
 
 function getFallback(mode,count){
   let p=[...FB,...S.customDrills];
-  if(mode==='flashcard')p=p.filter(d=>d.type==='flashcard');
+  if(mode==='vocab')p=p.filter(d=>d.type==='flashcard'&&isVocabDrill(d));
+  else if(mode==='flashcard')p=p.filter(d=>d.type==='flashcard');
   else if(mode==='translate')p=p.filter(d=>d.type==='translate');
   else if(mode==='conjugate')p=p.filter(d=>['conjugate','translate'].includes(d.type));
   shuf(p);while(p.length<count&&p.length>0)p=[...p,...p];
@@ -409,18 +429,36 @@ async function buildSession(mode,mins){
     let f=[...all];
     const wc=Object.entries(S.weakAreas).filter(([,v])=>v.wrong>v.right).map(([k])=>k);
     if(mode==='focus'&&wc.length){const w=f.filter(d=>wc.includes(d.category));f=[...w,...f.filter(d=>!wc.includes(d.category))];}
-    if(mode==='flashcard')f=f.filter(d=>d.type==='flashcard');
+    if(mode==='vocab')f=f.filter(d=>d.type==='flashcard'&&isVocabDrill(d));
+    else if(mode==='flashcard')f=f.filter(d=>d.type==='flashcard');
     else if(mode==='translate')f=f.filter(d=>d.type==='translate');
     else if(mode==='conjugate')f=f.filter(d=>['conjugate','translate'].includes(d.type));
-    pool=f.slice(0,Math.ceil(count*.5));
+    pool=f.slice(0,Math.ceil(count*.6));
   }
   const need=count-pool.length;
   if(need>0){
-    setLoad('Generating drills…','Creating AI content',30);
-    const wc=Object.entries(S.weakAreas).filter(([,v])=>v.wrong>v.right).map(([k])=>k);
-    const focus=mode==='focus'&&wc.length?wc.join(', '):mode==='conjugate'?'kora verb conjugation':mode==='translate'?'sentence translation connectors chaining':mode==='mixed'?'vocab translation conjugation connectors chaining':'conversational daily phrases';
-    try{pool=[...pool,...await genDrills(need,focus,isMix)];}
-    catch(e){pool=[...pool,...getFallback(mode,need)];}
+    // Vocab mode generates simple word pairs — no AI needed for generation either
+    if(mode==='vocab'){
+      setLoad('Generating vocab cards…','Creating word pairs',30);
+      try{
+        const t=await callAI(
+          'You are a Dhaka Bengali vocabulary drill generator. Return ONLY a valid JSON array, no markdown.',
+          `Generate ${need} simple Bangla vocabulary flashcards. Each card should be a single word or very short phrase (1-3 words max on each side).
+Focus on: kora verbs, common nouns, adjectives, connectors, pronouns, time words.
+Format: [{"type":"flashcard","prompt":"English word/phrase","answer":"Banglish word/phrase","category":"vocab","source":"ai"}]
+Examples: {"prompt":"To work","answer":"Kaj kora"}, {"prompt":"Happy","answer":"Khushi"}, {"prompt":"Because","answer":"Karon"}
+NO sentences. Single words and short phrases only.`
+        );
+        const arr=JSON.parse(t.replace(/```json|```/g,'').trim());
+        pool=[...pool,...arr.map(d=>({...d,source:'ai'}))];
+      }catch(e){pool=[...pool,...getFallback(mode,need)];}
+    } else {
+      setLoad('Generating drills…','Creating AI content',30);
+      const wc=Object.entries(S.weakAreas).filter(([,v])=>v.wrong>v.right).map(([k])=>k);
+      const focus=mode==='focus'&&wc.length?wc.join(', '):mode==='conjugate'?'kora verb conjugation':mode==='translate'?'sentence translation connectors chaining':mode==='mixed'?'vocab translation conjugation connectors chaining':'conversational daily phrases';
+      try{pool=[...pool,...await genDrills(need,focus,isMix)];}
+      catch(e){pool=[...pool,...getFallback(mode,need)];}
+    }
   }
   pool=dedupe(pool);shuf(pool);
   if(!pool.length)throw new Error('No drills available');
@@ -525,11 +563,11 @@ function rHome(a){
   a.innerHTML=`
     <div class="header"><span class="header-title">Bangla practice</span><span class="streak">🔥 <span class="streak-count">${S.progress.streak||0}</span> day streak</span></div>
     <div class="sec"><div class="sec-label">Start a session</div>
-      <div class="mc-full" onclick="pick('mixed')"><div class="mc-icon">🌀</div><div><div class="mc-title">Mixed lesson</div><div class="mc-sub">Flashcards, translation and conjugation together</div></div></div>
+      <div class="mc-full" onclick="pick('mixed')"><div class="mc-icon">🌀</div><div><div class="mc-title">Mixed lesson</div><div class="mc-sub">Vocab, translation, conjugation and construction together</div></div></div>
       <div class="grid2">
-        <div class="mc" onclick="pick('flashcard')"><div class="mc-icon">🃏</div><div class="mc-title">Flashcards</div><div class="mc-sub">Vocab and phrases</div></div>
-        <div class="mc" onclick="pick('translate')"><div class="mc-icon">🔄</div><div class="mc-title">Translation</div><div class="mc-sub">English to Bangla</div></div>
-        <div class="mc" onclick="pick('conjugate')"><div class="mc-icon">📝</div><div class="mc-title">Conjugation</div><div class="mc-sub">Verb forms</div></div>
+        <div class="mc" onclick="pick('vocab')"><div class="mc-icon">🔤</div><div class="mc-title">Vocab cards</div><div class="mc-sub">Word memorisation — Kaj kora → To work</div></div>
+        <div class="mc" onclick="pick('translate')"><div class="mc-icon">🔄</div><div class="mc-title">Translation</div><div class="mc-sub">Full sentence English to Bangla</div></div>
+        <div class="mc" onclick="pick('conjugate')"><div class="mc-icon">📝</div><div class="mc-title">Conjugation</div><div class="mc-sub">Verb forms ami / tumi / o</div></div>
         <div class="mc ${wc.length?'focus':''}" onclick="pick('focus')"><div class="mc-icon">🎯</div><div class="mc-title">Focus session</div><div class="mc-sub">${wc.length?wc.map(([k])=>k).slice(0,2).join(', '):'No weak areas yet'}</div></div>
       </div>
     </div>
@@ -545,7 +583,14 @@ function pick(m){S.sessionMode=m;S.sessionError=null;S.screen='session-pick';ren
 
 function rPick(a){
   const isMix=S.sessionMode==='mixed';
-  const lbl={mixed:'Mixed lesson',flashcard:'Flashcards',translate:'Translation',conjugate:'Conjugation',focus:'Focus session'}[S.sessionMode];
+  const lbl={mixed:'Mixed lesson',vocab:'Vocab cards',flashcard:'Flashcards',translate:'Translation',conjugate:'Conjugation',focus:'Focus session'}[S.sessionMode];
+  const desc={
+    vocab:'Simple word and phrase memorisation. Checked locally — no AI delay.',
+    translate:'Full sentence translation English to Bangla.',
+    conjugate:'Verb conjugation — ami / tumi / o forms.',
+    mixed:'All drill types together.',
+    focus:'Focused on your weak areas.',
+  }[S.sessionMode]||'';
   a.innerHTML=`
     <div class="header"><button class="back" onclick="S.screen='home';render()">← Back</button></div>
     <div class="sec">
@@ -553,8 +598,8 @@ function rPick(a){
       <div class="time-row">${[5,10,15,20].map(t=>`<button class="tb ${S.sessionTime===t?'active':''}" onclick="S.sessionTime=${t};render()">${t} min</button>`).join('')}</div>
       <div class="card" style="margin-bottom:14px;font-size:13px;color:#aaa;line-height:1.7">
         Mode: <strong style="color:#f0f0f0">${lbl}</strong><br>
-        Approx. ${Math.floor(S.sessionTime*1.5)} drills<br>
-        New vocabulary gets a mini lesson before drilling
+        ${desc}<br>
+        Approx. ${Math.floor(S.sessionTime*1.5)} drills
       </div>
       <button class="btn ${isMix?'mix':''}" id="sbtn" onclick="startSess()">Start session</button>
       ${S.sessionError?`<div class="err" style="margin-top:10px">⚠️ ${S.sessionError}</div>`:''}
@@ -585,7 +630,7 @@ function rDrill(a){
   const pct=Math.round((S.drillIndex/S.drills.length)*100);
   const isMix=S.sessionMode==='mixed'||S.sessionMode==='focus';
   const src=d.source||'ai';
-  const tl={flashcard:'Flashcard',translate:'Translate',conjugate:'Conjugate',construct:'Construct'}[d.type]||d.type;
+  const tl={flashcard:'Flashcard',translate:'Translate',conjugate:'Conjugate',construct:'Construct',vocab:'Vocab'}[d.type]||d.type;
   const srcTag=src==='custom'?'<span class="tag custom">⭐ Custom</span>':src==='doc'?'<span class="tag doc">📄 Doc</span>':src==='fb'?'<span class="tag fb">📚 Built-in</span>':'<span class="tag ai">✨ AI</span>';
   const isLast=S.drillIndex+1>=S.drills.length;
   const lesson=S.lessonMap[d.prompt.toLowerCase().trim()];
