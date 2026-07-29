@@ -290,32 +290,41 @@ No duplicate prompts. Return the JSON array only.`;
 }
 
 async function genLesson(drill){
-  const sys=`You are a Dhaka Bengali tutor creating a mini vocabulary lesson. Return ONLY valid JSON with no markdown fences or extra text.`;
+  const sys=`You are a Dhaka Bengali tutor creating a mini vocabulary lesson. Return ONLY valid JSON with no markdown fences or extra text. Your response must start with { and end with }.`;
   const usr=`Create a mini lesson for this Bangla practice drill.
 
 Drill type: ${drill.type}
 English prompt: "${drill.prompt}"
 Banglish answer: "${drill.answer}"
-Category: ${drill.category||'vocab'}
+Category: ${drill.category||'translation'}
 
-The student is an English speaker learning conversational Dhaka Bengali (tumi forms, informal) to speak with his wife Anisha and her family.
+The student is Jesse, an English speaker learning conversational Dhaka Bengali (tumi forms, informal) to speak with his wife Anisha and her Bangladeshi family.
 
-Return a JSON object with exactly these fields:
+Return this exact JSON structure:
 {
   "word": "the key Banglish word or phrase from the answer",
-  "meaning": "the English meaning",
-  "grammarNote": "2-3 sentences explaining the grammar pattern. E.g. how 'amar X lage' means 'I feel X', or how verb chaining works. Mention tumi forms where relevant.",
+  "meaning": "clear English meaning",
+  "grammarNote": "2-3 sentences explaining the grammar pattern. For chaining verbs explain the -e/-ye pattern. For connectors explain how karon/tai/kintu/jodi work. For sentences explain the structure.",
   "example": {
-    "bn": "a natural example sentence in Banglish using this word/phrase",
-    "en": "the English translation of that sentence"
+    "bn": "a natural Banglish example sentence Jesse might actually say to Anisha",
+    "en": "English translation of that sentence"
   },
-  "conversationTip": "1-2 sentences on when and how to use this naturally with Anisha or her family. Then provide a short realistic exchange on two separate lines starting with 'Jesse:' and 'Anisha:'"
+  "conversationTip": "One sentence on when to use this naturally. Then write exactly two lines: one starting with 'Jesse:' showing Jesse using it, one starting with 'Anisha:' showing a realistic response."
 }`;
   try{
     const t=await callAI(sys,usr);
-    return JSON.parse(t.replace(/```json|```/g,'').trim());
+    const clean=t.replace(/```json|```/g,'').trim();
+    const result=JSON.parse(clean);
+    if(!result.word||!result.meaning||!result.grammarNote)throw new Error('incomplete');
+    return result;
   }catch(e){
-    return{word:drill.answer,meaning:drill.prompt,grammarNote:'Practice using this word in a full sentence with tumi forms.',example:{bn:drill.answer,en:drill.prompt},conversationTip:`Use this naturally in conversation.\nJesse: ${drill.answer}\nAnisha: Hae, bujhechi!`};
+    return{
+      word:drill.answer,
+      meaning:drill.prompt,
+      grammarNote:`This is a ${drill.category||'translation'} pattern. Practice using it in full sentences with tumi forms.`,
+      example:{bn:drill.answer,en:drill.prompt},
+      conversationTip:`Use this naturally when speaking with Anisha.\nJesse: ${drill.answer}\nAnisha: Hae, bhalo hoyeche!`
+    };
   }
 }
 
@@ -462,12 +471,21 @@ NO sentences. Single words and short phrases only.`
   }
   pool=dedupe(pool);shuf(pool);
   if(!pool.length)throw new Error('No drills available');
-  setLoad('Preparing lessons…','Checking for new vocabulary',55);
+
+  // Only generate lesson cards for structural drills — not simple vocab words
+  // Vocab/flashcard cards with short answers don't benefit from a lesson card
+  const lessonCandidates=pool.filter(d=>{
+    if(S.seenVocab[d.prompt.toLowerCase().trim()])return false; // already seen
+    if(isVocabDrill(d))return false; // simple word — no lesson needed
+    if(d.type==='flashcard'&&(d.prompt||'').split(/\s+/).length<=3)return false; // short flashcard
+    return['translate','conjugate','construct'].includes(d.type);
+  }).slice(0,4); // max 4 lessons per session
+
+  setLoad('Preparing lessons…',lessonCandidates.length?`Preparing ${lessonCandidates.length} mini lessons`:'Almost ready',55);
   const lessonMap={};
-  const newOnes=pool.filter(d=>!S.seenVocab[d.prompt.toLowerCase().trim()]).slice(0,5);
-  for(let i=0;i<newOnes.length;i++){
-    const d=newOnes[i];
-    setLoad('Preparing lessons…',`Lesson ${i+1} of ${newOnes.length}: "${d.prompt}"`,55+Math.round((i/newOnes.length)*35));
+  for(let i=0;i<lessonCandidates.length;i++){
+    const d=lessonCandidates[i];
+    setLoad('Preparing lessons…',`Lesson ${i+1} of ${lessonCandidates.length}: "${d.prompt}"`,55+Math.round((i/lessonCandidates.length)*35));
     lessonMap[d.prompt.toLowerCase().trim()]=await genLesson(d);
   }
   setLoad('Almost ready…','Finalising',95);
