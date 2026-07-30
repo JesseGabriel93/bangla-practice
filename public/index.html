@@ -912,46 +912,50 @@ function extractRawPairs(text){
     /\/.*\//,                     // multiple slashes (option lists)
     /,.*,.*,/,                    // three or more commas (long lists)
     /^\d+[\.\)]/,                 // numbered list items
-    /^[-*•#]/,                    // bullet/header
+    /^[#]/,                       // markdown headers (but NOT bullets — we strip those and parse)
     /\b(subject|doer|owner|possession|pronoun|column|table|key rule|examples?:)\b/i,
-    /^(use|make|write|translate|fill|practice|drill|choose|correct|turn|change|rewrite|answer|complete|section|part|homework|classwork|quiz|warm.?up)\b/i,
+    /^(make|write|translate|fill|practice|drill|choose|correct|turn|change|rewrite|answer|complete|section|part|homework|classwork|quiz|warm.?up)\b/i,
     /\|\s*\|/,                    // table separators
   ];
 
-  for(const line of lines){
+  for(let line of lines){
+    // Strip leading bullet characters and whitespace before processing
+    line=line.replace(/^[\*\-•]\s*/,'').trim();
+    if(!line)continue;
     if(garbage.some(p=>p.test(line)))continue;
 
-    // Only accept clean "X = Y" where neither side contains →, /, or multiple =
-    const m=line.match(/^([^=→\/]{2,60})\s*=\s*([^=→\/]{2,80})$/);
+    // Only accept clean "X = Y" where neither side contains →, /
+    const m=line.match(/^([^=→]{2,60})\s*=\s*([^=→]{2,80})$/);
     if(!m)continue;
 
-    const left=m[1].trim();
-    const right=m[2].trim();
+    const left=m[1].trim().replace(/\.\s*X\s*$/,'').trim(); // strip trailing ". X" markers
+    const right=m[2].trim().replace(/\.\s*X\s*$/,'').trim();
 
-    // Skip if either side is very short (single char) or looks like a grammar label
     if(left.length<2||right.length<2)continue;
-    if(/^(I|a|A)$/.test(left)||/^(I|a|A)$/.test(right))continue;
 
-    // Determine direction — which side is English vs Banglish
-    const engWords=/\b(i|you|he|she|we|they|the|is|am|are|was|were|have|has|do|does|did|will|can|my|your|his|her|our|it|not|no|good|bad|big|small|today|now|later|very|little|always|sometimes|never|everyday|yesterday|tomorrow)\b/i;
-    const leftIsEng=engWords.test(left);
-    const rightIsEng=engWords.test(right);
+    // Detect English side — includes "To X" infinitive forms common in vocab lists
+    const engWords=/\b(i|you|he|she|we|they|the|is|am|are|was|were|have|has|do|does|did|will|can|my|your|his|her|our|it|not|no|good|bad|big|small|today|now|later|very|little|always|sometimes|never|everyday|yesterday|tomorrow|to|make|have|fun|take|care|turn|on|off)\b/i;
+    const startsWithTo=/^to\s+\w/i; // "To work", "To cook", "To try" etc
+
+    const leftIsEng=engWords.test(left)||startsWithTo.test(left);
+    const rightIsEng=engWords.test(right)||startsWithTo.test(right);
 
     let english='',banglish='';
     if(leftIsEng&&!rightIsEng){english=left;banglish=right;}
     else if(rightIsEng&&!leftIsEng){english=right;banglish=left;}
-    else if(leftIsEng&&rightIsEng){
-      // Both look English — likely a sentence pair, use left as prompt
-      english=left;banglish=right;
-    } else {
-      // Neither detected as English — skip, too ambiguous
-      continue;
+    else if(leftIsEng&&rightIsEng){english=left;banglish=right;}
+    else{
+      // Neither detected — if one side has "kora" it's likely Banglish
+      if(/kora|kore|kori|ache|nai|lage/i.test(left)){banglish=left;english=right;}
+      else if(/kora|kore|kori|ache|nai|lage/i.test(right)){banglish=right;english=left;}
+      else continue; // truly ambiguous — skip
     }
 
-    // Determine if it's a sentence (3+ words on both sides) or vocab (short phrase)
-    const engWords2=english.split(/\s+/).length;
-    const bnWords=banglish.split(/\s+/).length;
-    const isSentence=engWords2>=3&&bnWords>=2;
+    const engWordCount=english.split(/\s+/).length;
+    const bnWordCount=banglish.split(/\s+/).length;
+    // "To X" infinitive pairs are always flashcards even if 3+ words
+    const isInfinitive=startsWithTo.test(english);
+    const isSentence=!isInfinitive&&engWordCount>=3&&bnWordCount>=2;
 
     pairs.push({
       type: isSentence?'translate':'flashcard',
